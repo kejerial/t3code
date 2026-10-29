@@ -94,6 +94,20 @@ To show Claude task lists in the web and desktop apps, add
 **Environment** section in **Settings > Providers**. Each update shows as a Tasks
 row in the thread; open it to see every step.
 
+## Route Claude through a CLIProxyAPI hub
+
+When a CLIProxyAPI hub holds several Claude logins, one Claude instance can use all of them. The
+hub chooses the account for each request.
+
+1. Add the hub under **Settings → Providers → Usage providers → Add hub**.
+2. Open a Claude instance, or add one, and find **Hub**.
+3. Choose the hub, enter the hub's client access key, and select **Use hub**.
+
+T3 Code sets `ANTHROPIC_BASE_URL` and a Sensitive `ANTHROPIC_AUTH_TOKEN` on the instance. The
+sidebar and `/usage-limits` then show one pooled Claude bar with a row per hub account. The hub
+reports percent used, not plan size, so the pooled bar weights each account equally. **Stop using
+hub** removes both variables.
+
 ## OpenRouter
 
 Create a Claude instance with its own config directory, such as

@@ -8,6 +8,8 @@ import {
   type ServerProvider,
   type ServerProviderUsageLimits,
   type ServerProviderUsageWindow,
+  type UsageLimitSourceAccount,
+  type UsageLimitSourceSnapshot,
   type UsageLimitSourceSnapshots,
 } from "@t3tools/contracts";
 
@@ -510,6 +512,129 @@ function poolWindows(accounts: readonly LimitAccount[], now: number): readonly L
   return pools.sort((left, right) => WINDOW_KIND_ORDER[left.kind] - WINDOW_KIND_ORDER[right.kind]);
 }
 
+/** The hub a provider instance sends its traffic through, if any. */
+function pooledHubSource(
+  instanceId: ProviderInstanceId,
+  sources: UsageLimitSourceSnapshots,
+): UsageLimitSourceSnapshot | null {
+  return sources.find((source) => source.pooledInstanceIds?.includes(instanceId)) ?? null;
+}
+
+export interface HubPool {
+  /** Equal-weight mean of readable accounts: the hub reports percent used, not capacity. */
+  readonly windows: readonly ServerProviderUsageWindow[];
+  readonly members: readonly UsageLimitSourceAccount[];
+}
+
+/** Model-scoped windows ("Weekly · Fable") repeat an account's main weekly window. */
+export function isMainUsageWindow(window: ServerProviderUsageWindow): boolean {
+  return !window.label.includes(" · ");
+}
+
+function weeklyResetAt(account: UsageLimitSourceAccount): number {
+  if (limitsNotice(account.usageLimits) !== null) return Number.POSITIVE_INFINITY;
+  const weekly = account.usageLimits.windows.find(
+    (window) => window.kind === "weekly" && isMainUsageWindow(window),
+  );
+  return weekly?.resetsAt ? Date.parse(weekly.resetsAt) : Number.POSITIVE_INFINITY;
+}
+
+export function poolHubAccounts(
+  accounts: readonly UsageLimitSourceAccount[],
+  driver: ServerProvider["driver"],
+  now: number,
+): HubPool {
+  // Soonest weekly reset first: the order a reset-aware hub drains accounts in.
+  const members = accounts
+    .filter((account) => account.driver === driver)
+    .sort((left, right) => weeklyResetAt(left) - weeklyResetAt(right));
+  const readable = members.flatMap((account): LimitAccount[] =>
+    limitsNotice(account.usageLimits) === null
+      ? [
+          {
+            key: account.id,
+            driver,
+            displayName: null,
+            email: account.email,
+            plan: account.plan,
+            accentColor: undefined,
+            environments: [],
+            sourceLabel: null,
+            redeem: null,
+            limits: {
+              ...account.usageLimits,
+              windows: account.usageLimits.windows.filter(isMainUsageWindow),
+            },
+          },
+        ]
+      : [],
+  );
+  const windows = poolWindows(readable, now).map((pooled): ServerProviderUsageWindow => {
+    const nextReset = pooled.resets[0];
+    return {
+      id: pooled.id,
+      kind: pooled.kind,
+      label: pooled.label,
+      usedPercent: pooled.usedPercent,
+      ...(nextReset ? { resetsAt: DateTime.formatIso(DateTime.makeUnsafe(nextReset.at)) } : {}),
+    };
+  });
+  return { windows, members };
+}
+
+export function hubAccountLabel(account: UsageLimitSourceAccount): string {
+  return account.email?.trim() || account.id.replace(/\.json$/i, "");
+}
+
+const POOL_DRIVER_NAMES: Record<string, string> = { claudeAgent: "Claude", codex: "Codex" };
+
+/** One entry for an instance whose hub picks the account, such as "Claude · hub". */
+export function pooledInstanceName(provider: ServerProvider): string {
+  const name =
+    provider.displayName?.trim() || POOL_DRIVER_NAMES[provider.driver] || String(provider.driver);
+  return `${name} · hub`;
+}
+
+function pooledUsageReport(
+  selected: ServerProvider,
+  source: UsageLimitSourceSnapshot,
+  now: number,
+): UsageLimitsReport {
+  const pool = poolHubAccounts(source.accounts, selected.driver, now);
+  return {
+    createdAt: DateTime.formatIso(DateTime.makeUnsafe(now)),
+    accounts:
+      pool.members.length === 0
+        ? []
+        : [
+            {
+              id: `${source.id}:pool`,
+              driver: selected.driver,
+              label: pooledInstanceName(selected),
+              sourceLabel: source.label,
+              limits:
+                pool.windows.length > 0
+                  ? { checkedAt: source.checkedAt, windows: pool.windows }
+                  : {
+                      checkedAt: source.checkedAt,
+                      windows: [],
+                      unavailable: {
+                        reason: "probeFailed",
+                        message: "The hub could not read any account's usage.",
+                      },
+                    },
+              pool: {
+                members: pool.members.map((account) => ({
+                  label: hubAccountLabel(account),
+                  limits: account.usageLimits,
+                })),
+              },
+            },
+          ],
+    notices: source.error ? [`${source.label}: ${source.error}`] : [],
+  };
+}
+
 export function limitsNotice(limits: ServerProviderUsageLimits): string | null {
   if (limits.unavailable?.reason === "unsupported") {
     return limits.unavailable.message ?? "This account has no subscription limits.";
@@ -653,7 +778,10 @@ export function collectProviderUsageLimits(
   now: number,
 ): UsageLimitsReport | null {
   const selected = providers.find((provider) => provider.instanceId === instanceId);
-  if (!selected || !hasProviderUsageLimits(selected.driver, providers, sources)) return null;
+  if (!selected) return null;
+  const hub = pooledHubSource(instanceId, sources);
+  if (hub) return pooledUsageReport(selected, hub, now);
+  if (!hasProviderUsageLimits(selected.driver, providers, sources)) return null;
   const resolveKey = accountKeyResolver([
     ...providers.filter((provider) => provider.enabled).map(nativeReport),
     ...sources.flatMap((source) => source.accounts),

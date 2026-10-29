@@ -4,6 +4,7 @@ import {
   ProviderInstanceId,
   type ServerProvider,
   UsageLimitSourceId,
+  type UsageLimitSourceSnapshot,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
@@ -1167,6 +1168,99 @@ describe("/usage-limits", () => {
     );
     expect(sourceOnly?.accounts).toEqual([]);
     expect(sourceOnly?.notices).toEqual(["Accounts: token expired"]);
+  });
+
+  it("reports a hub-routed instance as one equal-weight pool of the hub's accounts", () => {
+    const claude = ProviderDriverKind.make("claudeAgent");
+    const routed = provider({
+      instanceId: ProviderInstanceId.make("claude_hub"),
+      driver: claude,
+      usageLimits: { ...limits, unavailable: { reason: "probeFailed" } },
+    });
+    const account = (
+      id: string,
+      session: number,
+      weekly: number,
+      resetsAt: string,
+      weeklyResetsAt: string,
+    ) => ({
+      id: `${id}.json`,
+      driver: claude,
+      email: `${id}@example.com`,
+      usageLimits: {
+        checkedAt: limits.checkedAt,
+        windows: [
+          { ...window, usedPercent: session, resetsAt },
+          {
+            id: "seven_day",
+            kind: "weekly" as const,
+            label: "Weekly",
+            usedPercent: weekly,
+            resetsAt: weeklyResetsAt,
+          },
+          {
+            id: "weekly_fable",
+            kind: "weekly" as const,
+            label: "Weekly · Fable",
+            usedPercent: 100,
+          },
+        ],
+      },
+    });
+    const hub: UsageLimitSourceSnapshot = {
+      id: UsageLimitSourceId.make("hub"),
+      kind: "cliproxy",
+      label: "Home hub",
+      checkedAt: limits.checkedAt,
+      error: "one account failed",
+      pooledInstanceIds: [routed.instanceId],
+      accounts: [
+        account("max5", 40, 20, "2026-09-03T15:00:00.000Z", "2026-09-05T12:00:00.000Z"),
+        account("max20", 80, 60, "2026-09-03T13:00:00.000Z", "2026-09-07T12:00:00.000Z"),
+        account("soonest", 10, 90, "2026-09-03T14:00:00.000Z", "2026-09-04T12:00:00.000Z"),
+        {
+          id: "broken.json",
+          driver: claude,
+          usageLimits: {
+            checkedAt: limits.checkedAt,
+            windows: [],
+            unavailable: { reason: "probeFailed" },
+          },
+        },
+        { id: "codex.json", driver: ProviderDriverKind.make("codex"), usageLimits: limits },
+      ],
+    };
+    const report = collectProviderUsageLimits(routed.instanceId, [routed], [hub], now);
+    expect(report?.notices).toEqual(["Home hub: one account failed"]);
+    expect(report?.accounts).toHaveLength(1);
+    const [pooled] = report!.accounts;
+    expect(pooled?.label).toBe("Claude · hub");
+    expect(
+      pooled?.limits.windows.map(({ id, usedPercent, resetsAt }) => ({
+        id,
+        usedPercent,
+        resetsAt,
+      })),
+    ).toEqual([
+      { id: "five_hour", usedPercent: 43, resetsAt: "2026-09-03T13:00:00.000Z" },
+      { id: "seven_day", usedPercent: 57, resetsAt: "2026-09-04T12:00:00.000Z" },
+    ]);
+    // Soonest weekly reset first, the order a reset-aware hub serves in; unreadable last.
+    expect(pooled?.pool?.members.map((member) => member.label)).toEqual([
+      "soonest@example.com",
+      "max5@example.com",
+      "max20@example.com",
+      "broken",
+    ]);
+    const renamed = { ...routed, displayName: "Pool" };
+    expect(
+      collectProviderUsageLimits(routed.instanceId, [renamed], [hub], now)?.accounts[0]?.label,
+    ).toBe("Pool · hub");
+    // A direct instance on the same environment keeps its per-account report.
+    expect(
+      collectProviderUsageLimits(selected.instanceId, [selected, routed], [hub], now)?.accounts[0]
+        ?.pool,
+    ).toBeUndefined();
   });
 
   it("advertises global and workspace commands only for providers present in Limits", () => {

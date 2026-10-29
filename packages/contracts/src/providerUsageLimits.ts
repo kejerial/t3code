@@ -72,6 +72,8 @@ export const UsageLimitSourceSnapshot = Schema.Struct({
   checkedAt: IsoDateTime,
   accounts: ForwardCompatibleArray(UsageLimitSourceAccount),
   error: Schema.optional(TrimmedNonEmptyString),
+  /** Provider instances that send their traffic through this hub and show its pooled quota. */
+  pooledInstanceIds: Schema.optional(Schema.Array(ProviderInstanceId)),
 });
 export type UsageLimitSourceSnapshot = typeof UsageLimitSourceSnapshot.Type;
 
@@ -130,6 +132,14 @@ export const UsageLimitsReport = Schema.Struct({
       displayName: Schema.optional(Schema.String),
       accentColor: Schema.optional(Schema.String),
       limits: ServerProviderUsageLimits,
+      /** Hub accounts behind a pooled entry; `limits` holds their equal-weight average. */
+      pool: Schema.optional(
+        Schema.Struct({
+          members: Schema.Array(
+            Schema.Struct({ label: TrimmedNonEmptyString, limits: ServerProviderUsageLimits }),
+          ),
+        }),
+      ),
     }),
   ),
   notices: Schema.Array(Schema.String),

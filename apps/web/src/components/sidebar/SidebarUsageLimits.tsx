@@ -1,11 +1,8 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { ServerProvider, ServerProviderUsageWindow } from "@t3tools/contracts";
-import {
-  collectLimitAccounts,
-  formatResetsIn,
-  remainingPercent,
-} from "@t3tools/shared/usageLimits";
+import { formatResetsIn, remainingPercent } from "@t3tools/shared/usageLimits";
 import * as Schema from "effect/Schema";
+import { ChevronRightIcon } from "lucide-react";
 import { memo } from "react";
 
 import { useLocalStorage } from "../../hooks/useLocalStorage";
@@ -19,11 +16,13 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { barColor } from "../usage/UsageLimits";
 import {
   type SidebarUsageAccount,
-  sidebarUsageAccounts,
+  type SidebarUsagePool,
+  sidebarUsage,
   usageTone,
 } from "./SidebarUsageLimits.logic";
 
 const SIDEBAR_USAGE_EXPANDED_KEY = "t3code:sidebar-usage-expanded";
+const SIDEBAR_USAGE_POOL_MEMBERS_KEY = "t3code:sidebar-usage-pool-members-expanded";
 
 const TONE_FILL = {
   warning: "var(--color-warning)",
@@ -120,25 +119,7 @@ function ExpandedAccount({
         </TooltipPopup>
       </Tooltip>
       {account.windows.map((window) => (
-        <WindowTooltip key={window.id} window={window} now={now}>
-          <div
-            role="img"
-            tabIndex={0}
-            aria-label={windowSummary(window, now)}
-            className="flex cursor-default flex-col gap-1 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
-          >
-            <span className="flex items-baseline gap-1.5 text-2xs leading-none tabular-nums">
-              <span className="truncate text-sidebar-muted-foreground">{window.label}</span>
-              <span className="shrink-0 font-medium text-sidebar-foreground">
-                {remainingPercent(window)}%
-              </span>
-              <span className="ms-auto shrink-0 text-sidebar-muted-foreground">
-                {formatResetsIn(window, now)?.replace("resets in ", "") ?? ""}
-              </span>
-            </span>
-            <UsageBar driver={account.driver} window={window} />
-          </div>
-        </WindowTooltip>
+        <WindowRow key={window.id} driver={account.driver} window={window} now={now} />
       ))}
     </li>
   );
@@ -174,15 +155,158 @@ function CollapsedAccount({
   );
 }
 
+function poolDescription(pool: SidebarUsagePool) {
+  return pool.readableCount > 1
+    ? `Average of ${pool.readableCount} accounts on ${pool.sourceLabel}, weighted equally: the hub reports percent used, not plan size. Resets show the next account to reset.`
+    : `Through ${pool.sourceLabel}.`;
+}
+
+function WindowRow({
+  driver,
+  window,
+  now,
+}: {
+  readonly driver: ServerProvider["driver"];
+  readonly window: ServerProviderUsageWindow;
+  readonly now: number;
+}) {
+  return (
+    <WindowTooltip window={window} now={now}>
+      <div
+        role="img"
+        tabIndex={0}
+        aria-label={windowSummary(window, now)}
+        className="flex cursor-default flex-col gap-1 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+      >
+        <span className="flex items-baseline gap-1.5 text-2xs leading-none tabular-nums">
+          <span className="truncate text-sidebar-muted-foreground">{window.label}</span>
+          <span className="shrink-0 font-medium text-sidebar-foreground">
+            {remainingPercent(window)}%
+          </span>
+          <span className="ms-auto shrink-0 text-sidebar-muted-foreground">
+            {formatResetsIn(window, now)?.replace("resets in ", "") ?? ""}
+          </span>
+        </span>
+        <UsageBar driver={driver} window={window} />
+      </div>
+    </WindowTooltip>
+  );
+}
+
+function PoolMembers({ pool, now }: { readonly pool: SidebarUsagePool; readonly now: number }) {
+  const [open, setOpen] = useLocalStorage(SIDEBAR_USAGE_POOL_MEMBERS_KEY, true, Schema.Boolean);
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="flex cursor-pointer items-center gap-1 self-start rounded-sm text-2xs leading-none text-sidebar-muted-foreground outline-none hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+        data-testid="sidebar-usage-pool-members-toggle"
+      >
+        <ChevronRightIcon
+          aria-hidden
+          className={cn("size-3 transition-transform", open && "rotate-90")}
+        />
+        {pool.members.length} {pool.members.length === 1 ? "account" : "accounts"}
+      </button>
+      {open ? (
+        <ul className="flex flex-col gap-1 ps-4">
+          {pool.members.map((member) => (
+            <li key={member.key} data-testid="sidebar-usage-pool-member">
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <span className="flex cursor-default items-baseline gap-1.5 text-2xs leading-none tabular-nums" />
+                  }
+                >
+                  <span className="min-w-0 truncate text-sidebar-muted-foreground">
+                    {member.label}
+                  </span>
+                  <span className="ms-auto shrink-0 font-medium text-sidebar-foreground">
+                    {member.window ? `${remainingPercent(member.window)}%` : "–"}
+                  </span>
+                  <span className="w-12 shrink-0 text-right text-sidebar-muted-foreground">
+                    {member.window
+                      ? (formatResetsIn(member.window, now)?.replace("resets in ", "") ?? "")
+                      : ""}
+                  </span>
+                </TooltipTrigger>
+                <TooltipPopup side="right">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-foreground">{member.identity}</span>
+                    <span className="text-muted-foreground">
+                      {member.window
+                        ? windowSummary(member.window, now)
+                        : "The hub could not read this account's usage."}
+                    </span>
+                  </div>
+                </TooltipPopup>
+              </Tooltip>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+function ExpandedPool({ pool, now }: { readonly pool: SidebarUsagePool; readonly now: number }) {
+  return (
+    <li className="flex flex-col gap-1.5" data-testid="sidebar-usage-pool">
+      <Tooltip>
+        <TooltipTrigger
+          render={<span className="flex min-w-0 cursor-default items-baseline gap-1.5 text-xs" />}
+        >
+          <span
+            aria-hidden
+            className="size-1.5 shrink-0 self-center rounded-full"
+            style={{ backgroundColor: barColor(pool.driver) }}
+          />
+          <span className="truncate font-medium text-sidebar-foreground">{pool.name}</span>
+        </TooltipTrigger>
+        <TooltipPopup side="right">{poolDescription(pool)}</TooltipPopup>
+      </Tooltip>
+      {pool.windows.map((window) => (
+        <WindowRow key={window.id} driver={pool.driver} window={window} now={now} />
+      ))}
+      <PoolMembers pool={pool} now={now} />
+    </li>
+  );
+}
+
+function CollapsedPool({ pool, now }: { readonly pool: SidebarUsagePool; readonly now: number }) {
+  const window = pool.primary;
+  return (
+    <li data-testid="sidebar-usage-pool">
+      <WindowTooltip window={window} now={now}>
+        <div
+          role="img"
+          tabIndex={0}
+          aria-label={`${pool.name} · ${windowSummary(window, now)}`}
+          className="flex cursor-default items-center gap-2 rounded-sm text-2xs leading-none tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+        >
+          <span className="w-20 shrink-0 truncate text-sidebar-muted-foreground">{pool.name}</span>
+          <UsageBar driver={pool.driver} window={window} />
+          <span className="w-8 shrink-0 text-right font-medium text-sidebar-foreground">
+            {remainingPercent(window)}%
+          </span>
+        </div>
+      </WindowTooltip>
+    </li>
+  );
+}
+
 /** Quota for every account the environments report, hub-pooled and direct, below the thread list. */
 export const SidebarUsageLimits = memo(function SidebarUsageLimits() {
   const presentations = useAtomValue(environmentPresentations.presentationsWithProvidersAtom);
   const nowMinute = useNowMinute();
   const [expanded, setExpanded] = useLocalStorage(SIDEBAR_USAGE_EXPANDED_KEY, true, Schema.Boolean);
-  const accounts = sidebarUsageAccounts(collectLimitAccounts(presentations));
-  if (accounts.length === 0) return null;
   const now = Date.parse(`${nowMinute}:00.000Z`);
+  const { pools, accounts } = sidebarUsage(presentations, now);
+  if (pools.length === 0 && accounts.length === 0) return null;
   const Account = expanded ? ExpandedAccount : CollapsedAccount;
+  const Pool = expanded ? ExpandedPool : CollapsedPool;
 
   return (
     <section aria-label="Usage limits" className="mx-0.5 flex flex-col pb-1">
@@ -194,6 +318,9 @@ export const SidebarUsageLimits = memo(function SidebarUsageLimits() {
         Usage
       </CollapsibleSectionHeader>
       <ul className={cn("flex flex-col px-2", expanded ? "gap-3 pt-0.5" : "gap-1.5")}>
+        {pools.map((pool) => (
+          <Pool key={pool.key} pool={pool} now={now} />
+        ))}
         {accounts.map((account) => (
           <Account key={account.key} account={account} now={now} />
         ))}

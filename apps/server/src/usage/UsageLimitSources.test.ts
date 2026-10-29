@@ -1,6 +1,11 @@
 import * as NodeCrypto from "@effect/platform-node/NodeCrypto";
 import { expect, it } from "@effect/vitest";
-import { ServerConfigStreamEvent, UsageLimitSourceId } from "@t3tools/contracts";
+import {
+  ProviderDriverKind,
+  ProviderInstanceId,
+  ServerConfigStreamEvent,
+  UsageLimitSourceId,
+} from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
@@ -68,6 +73,57 @@ it.effect("keeps malformed source URLs encodable for config subscribers", () =>
             url: "localhost:8317",
             managementKey: "",
             enabled: true,
+          },
+        },
+      }),
+      Layer.mock(BackgroundPolicy.BackgroundPolicy)({
+        shouldRunScopeWork: () => Effect.succeed(false),
+      }),
+      Layer.succeed(
+        HttpClient.HttpClient,
+        HttpClient.make(() => Effect.die("Unexpected network request")),
+      ),
+      NodeCrypto.layer,
+    ]),
+    Effect.scoped,
+  ),
+);
+
+it.effect("lists the provider instances routed through each hub", () =>
+  Effect.gen(function* () {
+    const sources = yield* UsageLimitSources.make;
+    yield* sources.refresh;
+    const snapshots = yield* sources.current;
+    expect(
+      snapshots.map((source) => ({ id: source.id, pooled: source.pooledInstanceIds })),
+    ).toEqual([
+      { id: "hub", pooled: ["claude_hub"] },
+      { id: "other-hub", pooled: undefined },
+    ]);
+  }).pipe(
+    Effect.provide([
+      ServerSettings.layerTest({
+        usageLimitSources: {
+          [UsageLimitSourceId.make("hub")]: {
+            kind: "cliproxy",
+            url: "http://127.0.0.1:8317",
+            managementKey: "",
+            enabled: true,
+          },
+          [UsageLimitSourceId.make("other-hub")]: {
+            kind: "cliproxy",
+            url: "http://127.0.0.1:8318",
+            managementKey: "",
+            enabled: true,
+          },
+        },
+        providerInstances: {
+          [ProviderInstanceId.make("claude_hub")]: {
+            driver: ProviderDriverKind.make("claudeAgent"),
+            usageLimitSourceId: UsageLimitSourceId.make("hub"),
+          },
+          [ProviderInstanceId.make("claude_direct")]: {
+            driver: ProviderDriverKind.make("claudeAgent"),
           },
         },
       }),

@@ -1,12 +1,19 @@
 import type { EnvironmentId, UsageLimitsReport } from "@t3tools/contracts";
-import { limitsNotice } from "@t3tools/shared/usageLimits";
-import { GaugeIcon } from "lucide-react";
+import {
+  formatResetsIn,
+  isMainUsageWindow,
+  limitsNotice,
+  remainingPercent,
+} from "@t3tools/shared/usageLimits";
+import { ChevronRightIcon, GaugeIcon } from "lucide-react";
+import { useState } from "react";
 
 import { ensureLocalApi } from "../../localApi";
 import { Button } from "../ui/button";
 import { providerClients } from "../settings/providerDriverMeta";
 import { RedactedSensitiveText } from "../settings/RedactedSensitiveText";
 import { LimitWindows, ResetCredits } from "../usage/UsageLimits";
+import { cn } from "../../lib/utils";
 import { ComposerBanner } from "./ComposerBanner";
 import type { ComposerBannerStackItem } from "./ComposerBannerStack";
 
@@ -67,6 +74,58 @@ export function usageLimitsBannerItem(
   };
 }
 
+type PoolMember = NonNullable<UsageLimitsReport["accounts"][number]["pool"]>["members"][number];
+
+function PoolMembers({
+  members,
+  now,
+}: {
+  readonly members: readonly PoolMember[];
+  readonly now: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const readable = members.filter((member) => limitsNotice(member.limits) === null).length;
+  return (
+    <div className="flex flex-col gap-1 text-xs">
+      {readable > 1 ? (
+        <span className="text-muted-foreground">
+          Average of {readable} accounts, weighted equally: the hub reports percent used, not plan
+          size.
+        </span>
+      ) : null}
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="flex cursor-pointer items-center gap-1 self-start rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
+      >
+        <ChevronRightIcon aria-hidden className={cn("size-3", open && "rotate-90")} />
+        {members.length} {members.length === 1 ? "account" : "accounts"}
+      </button>
+      {open ? (
+        <ul className="flex flex-col gap-0.5 ps-4 tabular-nums">
+          {members.map((member) => {
+            const windows = member.limits.windows.filter(isMainUsageWindow);
+            const weekly = windows.find((window) => window.kind === "weekly") ?? windows[0];
+            const notice = limitsNotice(member.limits);
+            return (
+              <li key={member.label} className="flex min-w-0 items-baseline gap-2">
+                <span className="min-w-0 truncate text-muted-foreground">{member.label}</span>
+                <span className="ms-auto shrink-0 text-foreground">
+                  {notice || !weekly ? "–" : `${remainingPercent(weekly)}% left`}
+                </span>
+                <span className="w-24 shrink-0 text-right text-muted-foreground">
+                  {weekly && !notice ? (formatResetsIn(weekly, now) ?? "") : ""}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 function UsageLimitsBannerBody({
   report,
   environmentId,
@@ -101,6 +160,7 @@ function UsageLimitsBannerBody({
                   now={now}
                 />
               )}
+              {account.pool ? <PoolMembers members={account.pool.members} now={now} /> : null}
               {externalUsage ? (
                 <Button
                   size="sm"
