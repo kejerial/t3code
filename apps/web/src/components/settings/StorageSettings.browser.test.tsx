@@ -91,6 +91,7 @@ function setup() {
       worktreeKeepWhen: "uncommitted-changes",
       worktreeAfterDays: null,
       worktreeSettledAfterDays: null,
+      worktreeSettledArchive: false,
       worktreeOnMerge: false,
       worktreeOnDelete: false,
       worktreeUnchanged: false,

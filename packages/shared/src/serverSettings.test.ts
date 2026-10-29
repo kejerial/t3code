@@ -72,6 +72,7 @@ describe("serverSettings helpers", () => {
     ).toEqual({
       worktreeAfterDays: null,
       worktreeSettledAfterDays: null,
+      worktreeSettledArchive: false,
       worktreeOnMerge: true,
       worktreeOnDelete: false,
       worktreeUnchanged: false,

@@ -271,6 +271,8 @@ const cleanupFixture = (
     let fullStatusCalls = 0;
     let snapshotReads = 0;
     let events: Stream.Stream<OrchestrationV2DomainEvent> = Stream.empty;
+    const dispatched: Array<{ readonly type: string; readonly threadId?: ThreadId }> = [];
+    let pullRequest: GitManager.GitBranchPullRequest | null = null;
     const activated = yield* Deferred.make<void>();
     const context = yield* Layer.build(StorageCleanup.layer).pipe(
       Effect.provideService(GitVcsDriver.GitVcsDriver, {
@@ -339,6 +341,11 @@ const cleanupFixture = (
       } as unknown as ProviderSessionManager.ProviderSessionManagerV2["Service"]),
       Effect.provideService(Orchestrator.OrchestratorV2, {
         streamDomainEvents: Stream.suspend(() => events),
+        dispatch: (command: { readonly type: string; readonly threadId?: ThreadId }) =>
+          Effect.sync(() => {
+            dispatched.push(command);
+            return {};
+          }),
       } as unknown as Orchestrator.OrchestratorV2["Service"]),
       Effect.provideService(SqlClient.SqlClient, ((strings: TemplateStringsArray) =>
         Effect.sync(() =>
@@ -373,6 +380,7 @@ const cleanupFixture = (
         )) as unknown as SqlClient.SqlClient),
       Effect.provideService(GitManager.GitManager, {
         invalidateStatus: () => Effect.void,
+        branchPullRequest: () => Effect.sync(() => pullRequest),
       } as unknown as GitManager.GitManager["Service"]),
       Effect.provideService(TerminalManager.TerminalManager, {
         subscribeMetadata: () => Effect.succeed(() => {}),
@@ -382,6 +390,10 @@ const cleanupFixture = (
     return {
       service: Context.get(context, StorageCleanup.StorageCleanup),
       repo,
+      dispatched,
+      setPullRequest: (next: GitManager.GitBranchPullRequest | null) => {
+        pullRequest = next;
+      },
       editBeforeRemoval: () => {
         editBeforeRemoval = true;
       },
@@ -1885,3 +1897,65 @@ it.live("keeps saved usage data when removing a settled checkout", () =>
     }),
   ),
 );
+
+describe("settled thread archiving", () => {
+  it.effect.each([
+    "pushed",
+    "merged-locally",
+    "merged-pr",
+    "unpushed",
+    "already-removed",
+    "off",
+  ] as const)("archives the thread and deletes only a preserved branch (%s)", (scenario) =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(NOW_MS);
+      const fixture = yield* cleanupFixture();
+      const remote = yield* fixture.fs.makeTempDirectoryScoped({ prefix: "cleanup-remote-" });
+      yield* fixture.command(remote, ["init", "--bare", "-b", "main"]);
+      yield* fixture.command(fixture.repo, ["remote", "add", "origin", remote]);
+      yield* fixture.command(fixture.repo, ["push", "origin", "main"]);
+      yield* fixture.command(fixture.repo, ["remote", "set-head", "origin", "main"]);
+      yield* fixture.fs.writeFileString(`${fixture.worktree}/feature.txt`, "work\n");
+      yield* fixture.command(fixture.worktree, ["add", "."]);
+      yield* fixture.command(fixture.worktree, ["commit", "-m", "feature"]);
+      const tip = (yield* fixture.command(fixture.worktree, ["rev-parse", "HEAD"])).stdout.trim();
+      if (scenario === "merged-locally")
+        yield* fixture.command(fixture.repo, ["merge", "--ff-only", "feature"]);
+      else if (scenario !== "unpushed" && scenario !== "merged-pr")
+        yield* fixture.command(fixture.worktree, ["push", "origin", "feature"]);
+      if (scenario === "merged-pr")
+        fixture.setPullRequest({
+          state: "merged",
+          headSha: tip,
+        } as GitManager.GitBranchPullRequest);
+      if (scenario === "already-removed")
+        yield* fixture.command(fixture.repo, ["worktree", "remove", fixture.worktree]);
+      fixture.setSettings({
+        storageCleanup: {
+          ...DEFAULT_SERVER_SETTINGS.storageCleanup,
+          worktreeSettledAfterDays: 2,
+          worktreeSettledArchive: scenario !== "off",
+        },
+      });
+      fixture.setThreads([
+        shell({ branch: "feature", worktreePath: fixture.worktree, settledAt: at(-3 * DAY_MS) }),
+      ]);
+      const report = yield* fixture.service.runNow;
+      const branch = yield* fixture.command(fixture.repo, ["branch", "--list", "feature"]);
+      expect(yield* fixture.fs.exists(fixture.worktree)).toBe(false);
+      expect(branch.stdout.trim() === "").toBe(scenario !== "unpushed" && scenario !== "off");
+      expect(fixture.dispatched).toEqual(
+        scenario === "off" ? [] : [expect.objectContaining({ type: "thread.archive" })],
+      );
+      expect(report.entries[0]).toMatchObject({
+        outcome: "removed",
+        reason:
+          scenario === "off"
+            ? "Settled for 3 days"
+            : scenario === "unpushed"
+              ? "Settled for 3 days; kept the branch because it has unpushed commits; archived the thread"
+              : "Settled for 3 days; deleted the branch; archived the thread",
+      });
+    }).pipe(Effect.provide(cleanupTestLayer), Effect.scoped),
+  );
+});

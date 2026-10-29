@@ -625,6 +625,36 @@ export function WorktreeCleanupSection() {
                     }
                   />
                 )}
+              {connectedEnvironments.length > 0 &&
+                connectedEnvironments.every(
+                  (environment) =>
+                    environment.serverConfig?.environment.capabilities.settledThreadArchive ===
+                    true,
+                ) && (
+                  <SettingsRow
+                    title="Archive settled threads"
+                    status={[
+                      ruleStatus("worktreeSettledArchive"),
+                      environments.length > connectedEnvironments.length
+                        ? "Offline machines will not get this setting"
+                        : undefined,
+                    ]
+                      .filter(Boolean)
+                      .join(". ")}
+                    description="When a settled worktree is deleted, also archive its thread and delete its branch. Branches with unpushed commits are kept."
+                    serverScoped={!isProjectScope}
+                    control={
+                      <Switch
+                        aria-label="Archive settled threads"
+                        checked={settings.worktreeSettledArchive}
+                        disabled={settings.worktreeSettledAfterDays === null}
+                        onCheckedChange={(worktreeSettledArchive) =>
+                          updateWorktree({ worktreeSettledArchive })
+                        }
+                      />
+                    }
+                  />
+                )}
               <SettingsRow
                 title="Delete unchanged worktrees"
                 status={ruleStatus("worktreeUnchanged")}
