@@ -1529,6 +1529,30 @@ describe("groupSidebarThreadsByProject", () => {
     ]);
     expect(summarize(false)).toEqual([{ projectKey: "t3code", threads: ["a", "b"] }]);
   });
+
+  it("puts the No project folder last, after every project", () => {
+    const scratch = ProjectId.make("scratch");
+    const fleet = ProjectId.make("fleet");
+    const groups = [
+      {
+        projectKey: "scratch",
+        isScratch: true,
+        memberProjectRefs: [{ environmentId: localEnvironmentId, projectId: scratch }],
+      },
+      {
+        projectKey: "fleet",
+        memberProjectRefs: [{ environmentId: localEnvironmentId, projectId: fleet }],
+      },
+    ];
+    const threads = [
+      { id: "s", environmentId: localEnvironmentId, projectId: scratch },
+      { id: "f", environmentId: localEnvironmentId, projectId: fleet },
+    ];
+
+    expect(
+      groupSidebarThreadsByProject(groups, threads, false).map((folder) => folder.group.projectKey),
+    ).toEqual(["fleet", "scratch"]);
+  });
 });
 
 describe("resolveSidebarFolderDot", () => {
