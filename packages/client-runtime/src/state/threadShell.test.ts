@@ -108,6 +108,37 @@ describe("v2 thread shell lists", () => {
     registry.dispose();
   });
 
+  it("hides side chats from every list but still reads them by ref", () => {
+    const { registry, threads, snapshotAtom } = makeHarness();
+    const root = v2ThreadShell;
+    const aside = {
+      ...root,
+      id: ThreadId.make("aside"),
+      kind: "aside" as const,
+      forkedFrom: { type: "run" as const, threadId: root.id, runId: RunId.make("run") },
+    };
+    registry.set(snapshotAtom(environmentId), { ...v2ShellSnapshot, threads: [root, aside] });
+    const ids = (shells: ReadonlyArray<{ readonly id: ThreadId }>) =>
+      shells.map((shell) => shell.id);
+    expect(ids(registry.get(threads.threadShellsAtom))).toEqual([root.id]);
+    expect(ids(registry.get(threads.quietThreadShellsAtom))).toEqual([root.id]);
+    expect(ids(registry.get(threads.navigationThreadShellsAtom))).toEqual([root.id]);
+    expect(
+      registry.get(threads.environmentThreadRefsAtom(environmentId)).map((ref) => ref.threadId),
+    ).toEqual([root.id]);
+    expect(
+      ids(
+        registry.get(
+          threads.threadShellsForProjectRefsAtom([{ environmentId, projectId: root.projectId }]),
+        ),
+      ),
+    ).toEqual([root.id]);
+    const ref = { environmentId, threadId: aside.id };
+    expect(registry.get(threads.threadShellAtom(ref))?.kind).toBe("aside");
+    expect(registry.get(threads.quietThreadShellAtom(ref))?.id).toBe(aside.id);
+    registry.dispose();
+  });
+
   it("keeps a live subagent question inside the parent without flagging its thread", () => {
     const { registry, threads, snapshotAtom } = makeHarness();
     const root = v2ThreadShell;
