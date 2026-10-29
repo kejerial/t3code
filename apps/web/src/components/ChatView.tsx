@@ -92,6 +92,7 @@ import {
 import { resolvePendingHandoff } from "@t3tools/client-runtime/handoff";
 import { HandoffRow } from "./chat/V2LifecycleRow";
 import {
+  asideOwnTurnItems,
   codexFeedbackMessage,
   isCompleteTurnItemRow,
   shouldShowLoadEarlierControl,
@@ -532,10 +533,17 @@ export default function ChatView(props: ChatViewProps) {
     serverProjection,
     activeProviderThread,
   );
-  const serverVisibleTurnItems = useQuietThreadVisibleTurnItems(routeThreadDetailRef);
+  const threadTurnItems = useQuietThreadVisibleTurnItems(routeThreadDetailRef);
+  const serverVisibleTurnItems = splitPane.aside
+    ? asideOwnTurnItems(threadTurnItems)
+    : threadTurnItems;
   const serverThreadHistory = useThreadHistory(routeThreadDetailRef);
   const threadHistoryControls = (() => {
-    if (routeThreadDetailRef === null || !shouldShowLoadEarlierControl(serverThreadHistory)) {
+    if (
+      routeThreadDetailRef === null ||
+      splitPane.aside ||
+      !shouldShowLoadEarlierControl(serverThreadHistory)
+    ) {
       return undefined;
     }
     return {
@@ -3306,6 +3314,7 @@ export default function ChatView(props: ChatViewProps) {
                 activeThreadKey={activeThreadKey}
                 syncing={threadSyncPhase !== null}
                 detailLoading={threadDetailLoading}
+                aside={splitPane.aside}
                 citationRequest={citationRequest}
                 citationHistory={citationHistory}
                 onCiteAssistantText={citeAssistantTextStable}

@@ -2,7 +2,7 @@ import { RunId, ThreadId, type OrchestrationV2Run } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
 import { describe, expect, it } from "vite-plus/test";
 
-import { findAsideThreads, selectAsideSourceRun } from "./asideThread.ts";
+import { asideOwnTurnItems, findAsideThreads, selectAsideSourceRun } from "./asideThread.ts";
 import { v2ThreadShell } from "./orchestrationV2TestFixtures.ts";
 
 const at = (seconds: number) => DateTime.makeUnsafe(seconds * 1000);
@@ -57,5 +57,17 @@ describe("findAsideThreads", () => {
       { ...v2ThreadShell, id: ThreadId.make("plain-fork"), forkedFrom },
     ];
     expect(findAsideThreads(threads, parent).map((thread) => thread.id)).toEqual(["aside"]);
+  });
+});
+
+describe("asideOwnTurnItems", () => {
+  it("keeps only the side chat's own rows, not the parent history or fork marker", () => {
+    const rows = [
+      { id: "parent-question", visibility: "inherited" as const },
+      { id: "fork-marker", visibility: "synthetic" as const },
+      { id: "side-question", visibility: "local" as const },
+      { id: "side-answer", visibility: "local" as const },
+    ];
+    expect(asideOwnTurnItems(rows).map((row) => row.id)).toEqual(["side-question", "side-answer"]);
   });
 });

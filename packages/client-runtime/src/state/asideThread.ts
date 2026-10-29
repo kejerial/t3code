@@ -1,5 +1,6 @@
 import type {
   OrchestrationV2Run,
+  OrchestrationV2ThreadProjection,
   OrchestrationV2ThreadShell,
   ProviderInteractionMode,
   RuntimeMode,
@@ -47,4 +48,13 @@ export function findAsideThreads<
       thread.forkedFrom?.type === "run" &&
       thread.forkedFrom.threadId === parentThreadId,
   );
+}
+
+/** A side chat shows only its own exchange; the agent still holds the parent's context. */
+export function asideOwnTurnItems<
+  T extends {
+    readonly visibility: OrchestrationV2ThreadProjection["visibleTurnItems"][number]["visibility"];
+  },
+>(rows: ReadonlyArray<T>): ReadonlyArray<T> {
+  return rows.filter((row) => row.visibility === "local");
 }

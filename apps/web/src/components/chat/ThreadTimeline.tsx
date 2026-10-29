@@ -1,3 +1,4 @@
+import { asideOwnTurnItems } from "@t3tools/client-runtime/state/threads";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { type ComponentProps, useLayoutEffect } from "react";
 import { useIncrementalTimelineEntries } from "../../hooks/useIncrementalTimelineEntries";
@@ -23,6 +24,7 @@ export function ThreadTimeline({
   activeThreadKey,
   syncing,
   detailLoading,
+  aside,
   ...timelineProps
 }: Omit<ComponentProps<typeof MessagesTimeline>, "timelineEntries"> & {
   /** Null until the thread's detail may load; see resolveThreadDetailRef. */
@@ -33,8 +35,11 @@ export function ThreadTimeline({
   activeThreadKey: string | null;
   syncing: boolean;
   detailLoading: boolean;
+  /** A side chat pane, which hides the history it forked from. */
+  aside: boolean;
 }) {
-  const visibleTurnItems = useThreadVisibleTurnItems(threadDetailRef);
+  const threadTurnItems = useThreadVisibleTurnItems(threadDetailRef);
+  const visibleTurnItems = aside ? asideOwnTurnItems(threadTurnItems) : threadTurnItems;
   const serverEntries = useIncrementalTimelineEntries(activeThreadKey, {
     ...entriesInput,
     visibleTurnItems,
