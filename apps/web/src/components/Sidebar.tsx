@@ -1719,6 +1719,41 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     dropThreadContext(point, contextDragThreads());
     return true;
   };
+  const startChildContextDrag = useStableCallback(
+    (threadRef: ScopedThreadRef, title: string, event: PointerEvent) => {
+      dragSensorRef.current = new SidebarPointerSensor({
+        active: scopedThreadKey(threadRef),
+        event,
+        options: {
+          distance: SIDEBAR_DRAG_DISTANCE,
+          onAttach: () => {},
+          onFinish: () => {
+            dragSensorRef.current = null;
+            endThreadContextDrag();
+          },
+          onMove: (point) => {
+            if (pointerOutsideThreadList(point)) {
+              moveThreadContextDragGhost(point, { title: title.trim() || "Thread", count: 1 });
+            } else {
+              endThreadContextDrag();
+            }
+            return true;
+          },
+          onDrop: (point) => {
+            if (!pointerOutsideThreadList(point)) return false;
+            dropThreadContext(point, [threadRef]);
+            return true;
+          },
+        },
+        onPending: () => {},
+        onStart: () => {},
+        onMove: () => {},
+        onEnd: () => {},
+        onCancel: () => {},
+        onAbort: () => {},
+      });
+    },
+  );
   // useSensor memoizes options identity; fresh options rebuild DndContext and every sortable row.
   const pointerSensorOptions = {
     distance: SIDEBAR_DRAG_DISTANCE,
@@ -3303,6 +3338,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               return (
                                 <ChildThreadRow
                                   key={childKey}
+                                  onContextDragStart={startChildContextDrag}
                                   thread={thread}
                                   variant="child"
                                   depth={Math.min(child.depth, SIDEBAR_CHILD_INDENT_DEPTH_CAP)}
