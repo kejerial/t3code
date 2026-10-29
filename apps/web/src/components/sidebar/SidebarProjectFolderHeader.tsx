@@ -34,6 +34,9 @@ export function sidebarFolderRowId(projectKey: string) {
  * count and chevron, with the count and a status dot only while it is closed, so a
  * closed folder still says when a hidden thread needs you.
  */
+/** The No project group's folder name: it collects threads that belong to no project. */
+const SIDEBAR_MISC_FOLDER_NAME = "Misc";
+
 export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHeader(props: {
   group: SidebarProjectSnapshot;
   collapsed: boolean;
@@ -44,6 +47,7 @@ export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHead
 }) {
   const { group, collapsed, hiddenThreads } = props;
   const rowId = sidebarFolderRowId(group.projectKey);
+  const name = group.isScratch ? SIDEBAR_MISC_FOLDER_NAME : group.displayName;
   const localLastVisitedAtById = useUiStateStore((state) => state.threadLastVisitedAtById);
   const dot = collapsed
     ? resolveSidebarFolderDot(
@@ -78,7 +82,7 @@ export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHead
       >
         <ProjectFavicon project={group} className="size-4 shrink-0" />
         <span className="min-w-0 flex-1 truncate text-sm font-medium text-sidebar-foreground/90">
-          {group.displayName}
+          {name}
         </span>
         {dot ? (
           <span className={cn("size-1.5 shrink-0 rounded-full", FOLDER_DOT_CLASS_NAME[dot])}>
@@ -104,7 +108,7 @@ export const SidebarProjectFolderHeader = memo(function SidebarProjectFolderHead
           data-sidebar-action-for={rowId}
           size="icon-xs"
           variant="ghost-muted"
-          aria-label={`New thread in ${group.displayName}`}
+          aria-label={`New thread in ${name}`}
           onClick={() => props.onNewThread(group)}
         >
           <SquarePenIcon aria-hidden />

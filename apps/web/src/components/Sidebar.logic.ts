@@ -1066,12 +1066,14 @@ export function sidebarFolderExpansionKeys(group: {
 }
 
 /**
- * Boring sidebar folders. Folders follow `groups` order and threads keep their
- * input order. A project with no threads gets a folder only with `keepEmpty`.
- * A thread whose project is in no group has no folder and is left out.
+ * Boring sidebar folders. Folders follow `groups` order, except the No project
+ * group, which goes last as Misc. Threads keep their input order. A project
+ * with no threads gets a folder only with `keepEmpty`. A thread whose project
+ * is in no group has no folder and is left out.
  */
 export function groupSidebarThreadsByProject<
   TGroup extends {
+    readonly isScratch?: boolean;
     readonly memberProjectRefs: ReadonlyArray<{
       readonly environmentId: EnvironmentId;
       readonly projectId: string;
@@ -1083,7 +1085,10 @@ export function groupSidebarThreadsByProject<
   threads: readonly TThread[],
   keepEmpty: boolean,
 ): Array<{ group: TGroup; threads: TThread[] }> {
-  const folders = groups.map((group) => ({ group, threads: [] as TThread[] }));
+  const folders = [
+    ...groups.filter((group) => !group.isScratch),
+    ...groups.filter((group) => group.isScratch),
+  ].map((group) => ({ group, threads: [] as TThread[] }));
   const folderByProject = new Map<string, (typeof folders)[number]>();
   for (const folder of folders) {
     for (const ref of folder.group.memberProjectRefs) {
