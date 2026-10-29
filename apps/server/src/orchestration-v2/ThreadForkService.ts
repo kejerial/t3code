@@ -8,6 +8,7 @@ import {
   OrchestrationV2ProviderThread,
   OrchestrationV2ProviderTurnTokenUsage,
   OrchestrationV2Run,
+  OrchestrationV2ThreadKind,
   OrchestrationV2ThreadProjection,
   ThreadId,
 } from "@t3tools/contracts";
@@ -58,6 +59,7 @@ export interface ThreadForkServiceV2Shape {
     readonly transferId: ContextTransferId;
     readonly targetThreadId: ThreadId;
     readonly title?: string;
+    readonly kind?: OrchestrationV2ThreadKind;
     readonly createdBy: OrchestrationV2Actor;
     readonly creationSource: OrchestrationV2CreationSource;
     readonly createdAt: DateTime.Utc;
@@ -80,12 +82,12 @@ export const layer: Layer.Layer<ThreadForkServiceV2> = Layer.succeed(
           cause: forkableSourceRunStatusError(input.sourceRun),
         });
       }
+      const { kind: _sourceKind, ...sourceThread } = input.sourceProjection.thread;
       const targetThread: OrchestrationV2AppThread = {
-        ...input.sourceProjection.thread,
+        ...sourceThread,
+        ...(input.kind === undefined ? {} : { kind: input.kind }),
         // PR context follows the conversation; watching remains the source thread's responsibility.
-        pullRequests: input.sourceProjection.thread.pullRequests?.map(
-          ({ watch: _watch, ...link }) => link,
-        ),
+        pullRequests: sourceThread.pullRequests?.map(({ watch: _watch, ...link }) => link),
         createdBy: input.createdBy,
         creationSource: input.creationSource,
         id: input.targetThreadId,

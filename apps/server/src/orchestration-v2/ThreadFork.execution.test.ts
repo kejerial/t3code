@@ -200,6 +200,83 @@ it.effect("a persisted fork leaves PR watching with its parent until explicitly 
   }).pipe(Effect.provide(forkCases[0]!.layer)),
 );
 
+it.effect("an aside fork of a completed run is marked while a later source run is running", () =>
+  Effect.gen(function* () {
+    const orchestrator = yield* Orchestrator.OrchestratorV2;
+    const eventSink = yield* EventSink.EventSinkV2;
+    const now = yield* DateTime.now;
+    const { instanceId, modelSelection } = forkCases[0]!;
+    const sourceThreadId = ThreadId.make("fork-aside-source");
+    const sourceRunId = RunId.make("fork-aside-source-run");
+
+    yield* orchestrator.dispatch({
+      type: "thread.create",
+      commandId: CommandId.make("fork-aside-create"),
+      threadId: sourceThreadId,
+      projectId: ProjectId.make("fork-aside-project"),
+      title: "Aside source",
+      modelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      branch: null,
+      worktreePath: null,
+      createdBy: "user",
+      creationSource: "web",
+    });
+    yield* eventSink.write({
+      events: (["completed", "running"] as const).map((status, index) => {
+        const runId = index === 0 ? sourceRunId : RunId.make("fork-aside-running-run");
+        return {
+          id: EventId.make(`fork-aside-${runId}`),
+          type: "run.created" as const,
+          threadId: sourceThreadId,
+          runId,
+          occurredAt: now,
+          payload: {
+            id: runId,
+            threadId: sourceThreadId,
+            ordinal: index + 1,
+            providerInstanceId: instanceId,
+            modelSelection,
+            providerThreadId: null,
+            userMessageId: MessageId.make(`fork-aside-message-${index}`),
+            rootNodeId: null,
+            activeAttemptId: null,
+            status,
+            requestedAt: now,
+            startedAt: now,
+            completedAt: status === "completed" ? now : null,
+            checkpointId: null,
+            contextHandoffId: null,
+          },
+        };
+      }),
+    });
+
+    const fork = (targetThreadId: ThreadId, kind?: "aside") =>
+      orchestrator.dispatch({
+        type: "thread.fork",
+        commandId: CommandId.make(`fork-aside:${targetThreadId}`),
+        sourceThreadId,
+        targetThreadId,
+        sourcePoint: { type: "run", runId: sourceRunId },
+        ...(kind === undefined ? {} : { kind }),
+        createdBy: "user",
+        creationSource: "web",
+      });
+    const asideThreadId = ThreadId.make("fork-aside-target");
+    const plainThreadId = ThreadId.make("fork-aside-plain");
+    yield* fork(asideThreadId, "aside");
+    yield* fork(plainThreadId);
+
+    assert.equal((yield* orchestrator.getThreadShell(asideThreadId))?.kind, "aside");
+    assert.equal((yield* orchestrator.getThreadProjection(asideThreadId)).thread.kind, "aside");
+    const plain = yield* orchestrator.getThreadShell(plainThreadId);
+    assert.isNotNull(plain);
+    assert.notProperty(plain, "kind");
+  }).pipe(Effect.provide(forkCases[0]!.layer)),
+);
+
 it.effect.each(forkCases)(
   "bounds $driver context when continuing a fork of a $status run",
   ({ driver, status, instanceId, modelSelection, layer }) =>
