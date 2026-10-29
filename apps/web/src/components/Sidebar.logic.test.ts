@@ -210,6 +210,19 @@ describe("buildSidebarThreadTree", () => {
   const otherProject = subagentOf("thread-other-project", root.id, {
     projectId: ProjectId.make("project-elsewhere"),
   });
+  const launched: Thread = {
+    ...makeThreadFixture({
+      id: ThreadId.make("thread-launched"),
+      environmentId,
+      projectId: ProjectId.make("project-launched"),
+      createdAt: "2026-02-03T00:00:00.000Z",
+    }),
+    launchedByThreadId: root.id,
+  };
+  const launchedByMissing: Thread = {
+    ...makeThreadFixture({ id: ThreadId.make("thread-launched-orphan"), environmentId }),
+    launchedByThreadId: ThreadId.make("thread-missing"),
+  };
   const orphan = subagentOf("thread-orphan", ThreadId.make("thread-missing"));
   const archivedParent = makeThreadFixture({
     id: ThreadId.make("thread-archived"),
@@ -229,28 +242,35 @@ describe("buildSidebarThreadTree", () => {
     grandchild,
     delegated,
     otherProject,
+    launched,
+    launchedByMissing,
     orphan,
     archivedParent,
     childOfArchived,
     providerChild,
   ];
 
-  it("nests subagents and delegated tasks under listed parents, oldest first", () => {
+  it("nests subagents, delegated tasks and launched threads under listed parents, oldest first", () => {
     const tree = buildSidebarThreadTree(threads);
 
     expect(tree.childrenByParentKey.get(key(root))?.map((thread) => thread.id)).toEqual([
       delegated.id,
+      otherProject.id,
       child.id,
       laterChild.id,
+      launched.id,
     ]);
     expect(tree.childrenByParentKey.get(key(child))?.map((thread) => thread.id)).toEqual([
       grandchild.id,
     ]);
-    // Forks are the user's own threads; other-project, orphaned and archived-parent
-    // children keep top-level rows. Provider-native children get no row at all.
+    expect([...tree.crossProjectKeys].toSorted()).toEqual(
+      [key(delegated), key(otherProject), key(launched)].toSorted(),
+    );
+    // Forks are the user's own threads; orphaned and archived-parent children keep
+    // top-level rows. Provider-native children get no row at all.
     expect(
       filterSidebarV2VisibleThreads(threads, null, tree.parentKeyByKey).map((thread) => thread.id),
-    ).toEqual([root.id, fork.id, otherProject.id, orphan.id, childOfArchived.id]);
+    ).toEqual([root.id, fork.id, launchedByMissing.id, orphan.id, childOfArchived.id]);
   });
 
   it("lists children depth first and skips what a collapsed parent hides", () => {
@@ -260,14 +280,18 @@ describe("buildSidebarThreadTree", () => {
 
     expect(rows(new Set())).toEqual([
       [delegated.id, 1],
+      [otherProject.id, 1],
       [child.id, 1],
       [grandchild.id, 2],
       [laterChild.id, 1],
+      [launched.id, 1],
     ]);
     expect(rows(new Set([key(child)]))).toEqual([
       [delegated.id, 1],
+      [otherProject.id, 1],
       [child.id, 1],
       [laterChild.id, 1],
+      [launched.id, 1],
     ]);
     expect(rows(new Set([key(root)]))).toEqual([]);
   });

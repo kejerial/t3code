@@ -156,7 +156,6 @@ import {
   resolveThreadRouteTarget,
 } from "../threadRoutes";
 import type { SidebarThreadSummary } from "../types";
-import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { cn } from "~/lib/utils";
 import { ProjectEnvironmentBadge } from "./ProjectEnvironmentBadge";
 import {
@@ -978,7 +977,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     },
   });
   const boringSidebarEnabled = useBoringSidebarEnabled();
-  const folderRowsMultiline = useClientSettings((settings) => settings.boringSidebarMultilineRows);
   const newThreadContext = useHandleNewThread();
   // Row callbacks capture only the handler; the rest of the context changes with the route.
   const { handleNewThread } = newThreadContext;
@@ -1141,19 +1139,6 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   }, [clearSelection, revealWidensScope, setPersistedProjectScopeKeys]);
   const revealActiveRow = useActiveRowReveal(routeReveal, routeRowThreadKey);
   const showProjectEnvironments = projectGroupsSpanEnvironments(projectGroups);
-  const scratchMachineLabelFor = (
-    thread: Pick<SidebarThreadSummary, "environmentId" | "projectId">,
-  ) => {
-    if (!showProjectEnvironments) return null;
-    const project = projectByKey.get(`${thread.environmentId}:${thread.projectId}`);
-    if (
-      !project ||
-      !isScratchProject(project, serverConfigs.get(thread.environmentId)?.scratchWorkspaceRoot)
-    ) {
-      return null;
-    }
-    return environmentLabelById.get(thread.environmentId) ?? null;
-  };
   const selectedProjectScopeItem =
     projectScopeKeys.length > 1
       ? null
@@ -3199,13 +3184,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                         );
                         const isCard =
                           section === "active" || section === "pinned" || section === "working";
-                        const rowVariant = folderRow
-                          ? folderRowsMultiline
-                            ? "folder-multiline"
-                            : "folder"
-                          : isCard
-                            ? "card"
-                            : "slim";
+                        const rowVariant = folderRow ? "folder" : isCard ? "card" : "slim";
                         const childCount =
                           threadTree.childrenByParentKey.get(threadKey)?.length ?? 0;
                         const row = (
@@ -3271,14 +3250,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                             jumpLabel={
                               showJumpHints ? (jumpLabelByKey.get(threadKey) ?? null) : null
                             }
-                            currentEnvironmentId={primaryEnvironmentId}
                             environmentLabel={
                               environmentLabelById.get(thread.environmentId) ?? null
                             }
                             environmentMachine={
                               environmentMachineById.get(thread.environmentId) ?? "server"
                             }
-                            scratchMachineLabel={scratchMachineLabelFor(thread)}
                             project={
                               projectByKey.get(`${thread.environmentId}:${thread.projectId}`) ??
                               null
@@ -3326,6 +3303,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                   variant="child"
                                   depth={Math.min(child.depth, SIDEBAR_CHILD_INDENT_DEPTH_CAP)}
                                   childInFolder={folderRow !== undefined}
+                                  showProjectBadge={threadTree.crossProjectKeys.has(childKey)}
                                   navigationParent={child.parentKey}
                                   childCount={child.childCount}
                                   childrenExpanded={child.expanded}
@@ -3349,14 +3327,12 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                                   jumpLabel={
                                     showJumpHints ? (jumpLabelByKey.get(childKey) ?? null) : null
                                   }
-                                  currentEnvironmentId={primaryEnvironmentId}
                                   environmentLabel={
                                     environmentLabelById.get(thread.environmentId) ?? null
                                   }
                                   environmentMachine={
                                     environmentMachineById.get(thread.environmentId) ?? "server"
                                   }
-                                  scratchMachineLabel={scratchMachineLabelFor(thread)}
                                   project={
                                     projectByKey.get(
                                       `${thread.environmentId}:${thread.projectId}`,

@@ -554,6 +554,7 @@ type SidebarTreeThread = Pick<
   | "lineage"
   | "creationSource"
   | "delegatedFrom"
+  | "launchedByThreadId"
   | "archivedAt"
   | "deletedAt"
   | "createdAt"
@@ -566,6 +567,8 @@ export interface SidebarThreadTree<T> {
   readonly parentKeyByKey: ReadonlyMap<string, string>;
   /** Provider-native subagents: they hang under a parent but have no row of their own. */
   readonly rowlessKeys: ReadonlySet<string>;
+  /** Children in another project than their parent, so their rows keep a project badge. */
+  readonly crossProjectKeys: ReadonlySet<string>;
 }
 
 export const SIDEBAR_CHILD_INDENT_DEPTH_CAP = 3;
@@ -577,13 +580,16 @@ function sidebarParentKey(thread: SidebarTreeThread): string | null {
   if (thread.lineage.relationshipToParent === "subagent" && thread.lineage.parentThreadId) {
     return scopedThreadKey(scopeThreadRef(thread.environmentId, thread.lineage.parentThreadId));
   }
-  return thread.delegatedFrom ? scopedThreadKey(thread.delegatedFrom) : null;
+  if (thread.delegatedFrom) return scopedThreadKey(thread.delegatedFrom);
+  return thread.launchedByThreadId
+    ? scopedThreadKey(scopeThreadRef(thread.environmentId, thread.launchedByThreadId))
+    : null;
 }
 
 /**
- * Subagents and delegated tasks list under their parent's row. One falls back to a
- * top-level row when its parent is not listed (missing, archived, deleted) or sits
- * in another project of the same environment, so its work is never out of reach.
+ * Subagents, delegated tasks and agent-launched threads list under their parent's row,
+ * across projects too. One falls back to a top-level row when its parent is not listed
+ * (missing, archived, deleted), so its work is never out of reach.
  * Provider-native subagents have no row; they resolve to their parent's.
  */
 export function buildSidebarThreadTree<T extends SidebarTreeThread>(
@@ -594,6 +600,7 @@ export function buildSidebarThreadTree<T extends SidebarTreeThread>(
     thread.archivedAt === null && thread.deletedAt === null;
   const parentKeyByKey = new Map<string, string>();
   const rowlessKeys = new Set<string>();
+  const crossProjectKeys = new Set<string>();
   for (const thread of threads) {
     const parentKey = sidebarParentKey(thread);
     if (parentKey !== null && isProviderNativeSubagentThread(thread)) {
@@ -603,10 +610,10 @@ export function buildSidebarThreadTree<T extends SidebarTreeThread>(
     }
     const parent = parentKey === null ? undefined : byKey.get(parentKey);
     if (parentKey === null || parent === undefined || !listed(thread) || !listed(parent)) continue;
-    if (parent.environmentId === thread.environmentId && parent.projectId !== thread.projectId) {
-      continue;
-    }
     parentKeyByKey.set(sidebarTreeKey(thread), parentKey);
+    if (parent.environmentId !== thread.environmentId || parent.projectId !== thread.projectId) {
+      crossProjectKeys.add(sidebarTreeKey(thread));
+    }
   }
   // A parent loop has no top-level row to hang from; its first member becomes one.
   for (const key of parentKeyByKey.keys()) {
@@ -633,7 +640,7 @@ export function buildSidebarThreadTree<T extends SidebarTreeThread>(
         left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
     );
   }
-  return { childrenByParentKey, parentKeyByKey, rowlessKeys };
+  return { childrenByParentKey, parentKeyByKey, rowlessKeys, crossProjectKeys };
 }
 
 export interface SidebarChildRow<T> {
