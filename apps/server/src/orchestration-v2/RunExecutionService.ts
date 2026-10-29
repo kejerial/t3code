@@ -879,15 +879,20 @@ export const layer: Layer.Layer<
         };
         // Startup failure and stream shutdown can report the same attempt.
         const refreshAfterTurn = yield* Effect.cached(
-          finalizationObserver.refreshAfterTurn(input.appThread.projectId).pipe(
-            Effect.catchCause((cause) =>
-              Effect.logWarning("failed to refresh pull requests after run termination", {
-                threadId: input.run.threadId,
-                runId: input.run.id,
-                cause,
-              }),
+          finalizationObserver
+            .refreshAfterTurn({
+              projectId: input.appThread.projectId,
+              providerInstanceId: input.run.providerInstanceId,
+            })
+            .pipe(
+              Effect.catchCause((cause) =>
+                Effect.logWarning("failed to refresh after run termination", {
+                  threadId: input.run.threadId,
+                  runId: input.run.id,
+                  cause,
+                }),
+              ),
             ),
-          ),
         );
         const makeFailedTerminalEvent = (
           failure: OrchestrationV2ProviderFailure,

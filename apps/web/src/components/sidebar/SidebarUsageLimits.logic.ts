@@ -22,7 +22,7 @@ export interface SidebarUsageAccount {
 
 const PROVIDER_NAMES: Record<string, string> = { claudeAgent: "Claude", codex: "Codex" };
 
-export function providerName(driver: LimitAccount["driver"]): string {
+function providerName(driver: LimitAccount["driver"]): string {
   return (
     PROVIDER_NAMES[driver] ??
     Object.values(PROVIDER_PRESENTATION).find((entry) => entry.driverKind === driver)?.label ??
