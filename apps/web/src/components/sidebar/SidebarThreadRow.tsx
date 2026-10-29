@@ -1198,7 +1198,8 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             ) : (
               <span
                 className={cn(
-                  "relative ml-auto flex h-6 min-w-8 shrink-0 items-center justify-end",
+                  "relative ml-auto flex h-6 shrink-0 items-center justify-end",
+                  inFolder && topStatus && !isWokeStatus ? "min-w-4" : "min-w-8",
                   props.sweepAction !== null && "hidden",
                 )}
               >
@@ -1233,14 +1234,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                     </Tooltip>
                   ) : inFolder && topStatus ? (
                     // Folder rows have no status line, so the status takes the time slot.
-                    <span
-                      className={cn(
-                        "inline-flex items-center gap-1 text-xs font-medium",
-                        topStatus.className,
-                      )}
-                    >
-                      <TopStatusIcon icon={topStatus.icon} className="size-3" />
-                      {topStatus.label}
+                    // Icon only, so the title keeps the width. The row's accessible
+                    // name already includes the status label.
+                    <span className={cn("inline-flex items-center", topStatus.className)}>
+                      <TopStatusIcon icon={topStatus.icon} className="size-3.5" />
                     </span>
                   ) : (
                     <span className="text-xs">
