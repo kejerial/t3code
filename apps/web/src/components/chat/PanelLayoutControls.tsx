@@ -12,6 +12,8 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 
 export interface PanelLayoutControlsProps {
   showThreadPanelControl?: boolean;
+  /** Drawn just left of the thread details toggle, and only where that toggle is. */
+  sideChatControl?: ReactNode;
   showTerminalControl?: boolean;
   showRightPanelControl?: boolean;
   terminalAvailable: boolean;
@@ -32,6 +34,7 @@ export interface PanelLayoutControlsProps {
 
 export const PanelLayoutControls = memo(function PanelLayoutControls({
   showThreadPanelControl = true,
+  sideChatControl,
   showTerminalControl = true,
   showRightPanelControl = true,
   terminalAvailable,
@@ -82,6 +85,7 @@ export const PanelLayoutControls = memo(function PanelLayoutControls({
       className="flex h-full shrink-0 items-center gap-1 [-webkit-app-region:no-drag]"
       data-panel-layout-controls
     >
+      {showThreadPanelControl ? sideChatControl : null}
       {showThreadPanelControl ? threadPanelControl : null}
       {showTerminalControl ? (
         <Tooltip>

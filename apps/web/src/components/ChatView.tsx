@@ -92,6 +92,7 @@ import {
 import { resolvePendingHandoff } from "@t3tools/client-runtime/handoff";
 import { HandoffRow } from "./chat/V2LifecycleRow";
 import {
+  asideOwnTurnItems,
   codexFeedbackMessage,
   isCompleteTurnItemRow,
   shouldShowLoadEarlierControl,
@@ -113,6 +114,7 @@ import { type SetStateAction, use, useEffect, useLayoutEffect, useRef, useState 
 import { BackgroundThreadContext, SplitPaneContext } from "./chat/backgroundThread";
 import { MessageSquareQuoteIcon, XIcon } from "lucide-react";
 import { Button } from "./ui/button";
+import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { assistantCitationFromLocation } from "../lib/assistantCitationNavigation";
 import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
@@ -531,10 +533,17 @@ export default function ChatView(props: ChatViewProps) {
     serverProjection,
     activeProviderThread,
   );
-  const serverVisibleTurnItems = useQuietThreadVisibleTurnItems(routeThreadDetailRef);
+  const threadTurnItems = useQuietThreadVisibleTurnItems(routeThreadDetailRef);
+  const serverVisibleTurnItems = splitPane.aside
+    ? asideOwnTurnItems(threadTurnItems)
+    : threadTurnItems;
   const serverThreadHistory = useThreadHistory(routeThreadDetailRef);
   const threadHistoryControls = (() => {
-    if (routeThreadDetailRef === null || !shouldShowLoadEarlierControl(serverThreadHistory)) {
+    if (
+      routeThreadDetailRef === null ||
+      splitPane.aside ||
+      !shouldShowLoadEarlierControl(serverThreadHistory)
+    ) {
       return undefined;
     }
     return {
@@ -3113,7 +3122,30 @@ export default function ChatView(props: ChatViewProps) {
       }}
     />
   ) : null;
+  const sideChatShortcutLabel = shortcutLabelForCommand(keybindings, "chat.aside");
+  const sideChatControl =
+    activeThreadRef && isServerThread && !splitPane.aside && canOperateThread ? (
+      <Tooltip>
+        <TooltipTrigger render={<span className="flex shrink-0" />}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Open side chat"
+            disabled={sideChatReason !== null}
+            className="shrink-0 [-webkit-app-region:no-drag]"
+            onClick={() => void openSideChat(activeThreadRef)}
+          >
+            <MessageSquareQuoteIcon className="size-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipPopup side="bottom">
+          {sideChatReason ?? "Open side chat"}
+          {sideChatReason === null && sideChatShortcutLabel ? ` (${sideChatShortcutLabel})` : ""}
+        </TooltipPopup>
+      </Tooltip>
+    ) : null;
   const panelToggleControlProps = {
+    sideChatControl,
     terminalAvailable: activeProject !== null,
     terminalOpen: terminalUiState.terminalOpen,
     terminalShortcutLabel: shortcutLabelForCommand(keybindings, "terminal.toggle"),
@@ -3198,19 +3230,6 @@ export default function ChatView(props: ChatViewProps) {
           ) : null}
           {!rightPanelControlsAtRoot && !rightPanelControlsInPanel ? panelLayoutControls : null}
           {inlineRightPanelOwnsTitleBar ? threadPanelHeaderControl : null}
-          {activeThreadRef && isServerThread && !splitPane.aside && canOperateThread ? (
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              aria-label="Open side chat"
-              title={sideChatReason ?? "Open side chat"}
-              disabled={sideChatReason !== null}
-              className="me-1 shrink-0 [-webkit-app-region:no-drag]"
-              onClick={() => void openSideChat(activeThreadRef)}
-            >
-              <MessageSquareQuoteIcon />
-            </Button>
-          ) : null}
           {splitPane.onClose ? (
             <Button
               variant="ghost"
@@ -3295,6 +3314,7 @@ export default function ChatView(props: ChatViewProps) {
                 activeThreadKey={activeThreadKey}
                 syncing={threadSyncPhase !== null}
                 detailLoading={threadDetailLoading}
+                aside={splitPane.aside}
                 citationRequest={citationRequest}
                 citationHistory={citationHistory}
                 onCiteAssistantText={citeAssistantTextStable}

@@ -682,12 +682,25 @@ describe("rightPanelStore", () => {
     ).toEqual({
       byThreadKey: {},
       threadPanelVisibilityByThreadKey: {
-        "env-1:thread-A": { inlineOpen: false, popoverOpen: false },
+        "env-1:thread-B": { inlineOpen: true, popoverOpen: false },
       },
     });
   });
 
+  it("starts a thread with its details panel closed until the user opens it", () => {
+    const visibility = () =>
+      selectThreadPanelVisibility(
+        useRightPanelStore.getState().threadPanelVisibilityByThreadKey,
+        refA,
+      );
+    expect(visibility()).toEqual({ inlineOpen: false, popoverOpen: false });
+
+    useRightPanelStore.getState().toggleThreadPanel(refA, "inline");
+    expect(visibility()).toEqual({ inlineOpen: true, popoverOpen: false });
+  });
+
   it("closes the popover atomically when the real right panel opens", () => {
+    useRightPanelStore.getState().setThreadPanelOpen(refA, "inline", true);
     useRightPanelStore.getState().setThreadPanelOpen(refA, "popover", true);
     useRightPanelStore.getState().open(refA, "diff");
 
