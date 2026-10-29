@@ -129,7 +129,7 @@ import { AsyncResult } from "effect/reactivity";
 import { isElectron } from "../env";
 import { useDiffPanelStore } from "../diffPanelStore";
 import { useActiveThreadRef } from "../hooks/useActiveThreadRef";
-import { composerRequiresModifier } from "../composer-logic";
+import { composerRequiresModifier, formatAssistantCitationForComposer } from "../composer-logic";
 import {
   derivePhase,
   deriveActiveWorkStartedAt,
@@ -951,6 +951,13 @@ export default function ChatView(props: ChatViewProps) {
   const activeThreadRef = useActiveThreadRef(activeThread);
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
   const sideChatReason = sideChatUnavailableReason(serverProjection?.runs ?? []);
+  const addAssistantTextToSideChat = (citation: AssistantCitation) => {
+    if (!activeThreadRef) return;
+    void openSideChat(activeThreadRef, {
+      draft: formatAssistantCitationForComposer(citation, citation.comment),
+    });
+  };
+  const addAssistantTextToSideChatStable = useStableCallback(addAssistantTextToSideChat);
   const activeEnvironmentServerBrowser = useEnvironmentSupportsServerBrowser(
     activeThreadRef?.environmentId ?? null,
   );
@@ -3291,6 +3298,15 @@ export default function ChatView(props: ChatViewProps) {
                 citationRequest={citationRequest}
                 citationHistory={citationHistory}
                 onCiteAssistantText={citeAssistantTextStable}
+                onAddAssistantTextToSideChat={
+                  activeThreadRef &&
+                  isServerThread &&
+                  !splitPane.aside &&
+                  canOperateThread &&
+                  sideChatReason === null
+                    ? addAssistantTextToSideChatStable
+                    : undefined
+                }
                 {...(activeProject ? { onRunShellCommand: runShellCommandStable } : {})}
                 isWorking={isWorking}
                 runlessWorkActive={runlessWorkStartedAt !== null}

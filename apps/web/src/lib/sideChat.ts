@@ -17,6 +17,7 @@ import {
 } from "@t3tools/contracts";
 
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
+import { useComposerDraftStore } from "~/composerDraftStore";
 import { newMessageId, newThreadId } from "~/lib/utils";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { isAsidePane, openAsideSplitViewPane, useSplitViewStore } from "../splitViewStore";
@@ -65,13 +66,20 @@ export async function closeSideChat(thread: ScopedThreadRef): Promise<void> {
   failed(await deleteThread(thread), "Failed to close the side chat.");
 }
 
+function appendToDraft(thread: ScopedThreadRef, text: string) {
+  const store = useComposerDraftStore.getState();
+  const existing = store.getComposerDraft(thread)?.prompt.trimEnd() ?? "";
+  store.setPrompt(thread, existing.length === 0 ? text : `${existing}\n${text}`);
+}
+
 /**
- * Opens a side chat beside `parent` and, with a question, sends it as the first message. The
+ * Opens a side chat beside `parent`. A question is sent as its first message; a draft is left in
+ * its composer, and goes into the parent's side chat already on screen instead of a new one. The
  * parent's newest completed response is the fork point; a parent with none gets a notice.
  */
 export async function openSideChat(
   parent: ScopedThreadRef,
-  options: { readonly question?: string } = {},
+  options: { readonly question?: string; readonly draft?: string } = {},
 ): Promise<boolean> {
   if (!readEnvironmentScope(parent.environmentId, AuthOrchestrationOperateScope)) {
     warn("This connection cannot open side chats.");
@@ -87,7 +95,13 @@ export async function openSideChat(
   // One side chat pane at a time; one asked beside another thread goes before this one opens.
   // The command itself replaces an earlier side chat of the same parent.
   const shownAside = useSplitViewStore.getState().layout.panes.find(isAsidePane);
-  if (shownAside && scopedThreadKey(shownAside.asideOf!) !== scopedThreadKey(parent)) {
+  const shownForParent =
+    shownAside !== undefined && scopedThreadKey(shownAside.asideOf!) === scopedThreadKey(parent);
+  if (shownForParent && options.draft !== undefined) {
+    appendToDraft(shownAside.thread, options.draft);
+    return true;
+  }
+  if (shownAside && !shownForParent) {
     await deleteThread(shownAside.thread);
   }
   const aside = scopeThreadRef(parent.environmentId, newThreadId());
@@ -106,6 +120,7 @@ export async function openSideChat(
     return false;
   }
   const { layout, setLayout } = useSplitViewStore.getState();
+  if (options.draft !== undefined) appendToDraft(aside, options.draft);
   setLayout(openAsideSplitViewPane(layout, aside, parent));
   const question = options.question?.trim();
   if (!question) return true;
