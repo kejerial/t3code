@@ -552,6 +552,10 @@ type SidebarThreadRowProps = {
   onUnpin: (threadRef: ScopedThreadRef) => void;
   onAcknowledgeWoke: (threadRef: ScopedThreadRef, visitedAt: string) => void;
   onFileDropThreads?: ((threadRef: ScopedThreadRef, files: File[]) => void) | undefined;
+  // Rows outside the sortable list drag out of the sidebar through this instead.
+  onContextDragStart?:
+    | ((threadRef: ScopedThreadRef, title: string, event: PointerEvent) => void)
+    | undefined;
 };
 
 // Mounted only while renaming, so each rename starts uncommitted.
@@ -943,7 +947,14 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         },
         ...sortable.listeners,
       }
-    : {};
+    : props.onContextDragStart && !isRenaming
+      ? {
+          onPointerDown: (event: ReactPointerEvent) => {
+            if (!event.isPrimary || event.button !== 0) return;
+            props.onContextDragStart?.(threadRef, thread.title, event.nativeEvent);
+          },
+        }
+      : {};
   const destinationVerb = sortable?.isDragging
     ? props.dropVerb
     : props.sweepAction === "unsnooze"
