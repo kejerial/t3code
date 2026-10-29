@@ -32,7 +32,7 @@ export interface SidebarUsageAccount {
 
 const PROVIDER_NAMES: Record<string, string> = { claudeAgent: "Claude", codex: "Codex" };
 
-export function providerName(driver: LimitAccount["driver"]): string {
+function providerName(driver: LimitAccount["driver"]): string {
   return (
     PROVIDER_NAMES[driver] ??
     Object.values(PROVIDER_PRESENTATION).find((entry) => entry.driverKind === driver)?.label ??
@@ -60,9 +60,7 @@ export function usageTone(window: ServerProviderUsageWindow): SidebarUsageTone {
 }
 
 /** Accounts with at least one bar, named by provider and email. */
-export function sidebarUsageAccounts(
-  accounts: readonly LimitAccount[],
-): readonly SidebarUsageAccount[] {
+function sidebarUsageAccounts(accounts: readonly LimitAccount[]): readonly SidebarUsageAccount[] {
   return accounts
     .flatMap((account): SidebarUsageAccount[] => {
       // Model-scoped limits ("Weekly · Fable") repeat the account's weekly bar; keep the main ones.

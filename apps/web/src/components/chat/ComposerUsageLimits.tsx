@@ -97,7 +97,7 @@ function PoolMembers({
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="flex cursor-pointer items-center gap-1 self-start rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/70"
+        className="flex cursor-pointer items-center gap-1 self-start rounded-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
       >
         <ChevronRightIcon aria-hidden className={cn("size-3", open && "rotate-90")} />
         {members.length} {members.length === 1 ? "account" : "accounts"}

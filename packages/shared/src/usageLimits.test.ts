@@ -1177,7 +1177,13 @@ describe("/usage-limits", () => {
       driver: claude,
       usageLimits: { ...limits, unavailable: { reason: "probeFailed" } },
     });
-    const account = (id: string, session: number, weekly: number, resetsAt: string) => ({
+    const account = (
+      id: string,
+      session: number,
+      weekly: number,
+      resetsAt: string,
+      weeklyResetsAt: string,
+    ) => ({
       id: `${id}.json`,
       driver: claude,
       email: `${id}@example.com`,
@@ -1185,7 +1191,13 @@ describe("/usage-limits", () => {
         checkedAt: limits.checkedAt,
         windows: [
           { ...window, usedPercent: session, resetsAt },
-          { id: "seven_day", kind: "weekly" as const, label: "Weekly", usedPercent: weekly },
+          {
+            id: "seven_day",
+            kind: "weekly" as const,
+            label: "Weekly",
+            usedPercent: weekly,
+            resetsAt: weeklyResetsAt,
+          },
           {
             id: "weekly_fable",
             kind: "weekly" as const,
@@ -1203,8 +1215,9 @@ describe("/usage-limits", () => {
       error: "one account failed",
       pooledInstanceIds: [routed.instanceId],
       accounts: [
-        account("max5", 40, 20, "2026-09-03T15:00:00.000Z"),
-        account("max20", 80, 60, "2026-09-03T13:00:00.000Z"),
+        account("max5", 40, 20, "2026-09-03T15:00:00.000Z", "2026-09-05T12:00:00.000Z"),
+        account("max20", 80, 60, "2026-09-03T13:00:00.000Z", "2026-09-07T12:00:00.000Z"),
+        account("soonest", 10, 90, "2026-09-03T14:00:00.000Z", "2026-09-04T12:00:00.000Z"),
         {
           id: "broken.json",
           driver: claude,
@@ -1229,14 +1242,20 @@ describe("/usage-limits", () => {
         resetsAt,
       })),
     ).toEqual([
-      { id: "five_hour", usedPercent: 60, resetsAt: "2026-09-03T13:00:00.000Z" },
-      { id: "seven_day", usedPercent: 40, resetsAt: undefined },
+      { id: "five_hour", usedPercent: 43, resetsAt: "2026-09-03T13:00:00.000Z" },
+      { id: "seven_day", usedPercent: 57, resetsAt: "2026-09-04T12:00:00.000Z" },
     ]);
+    // Soonest weekly reset first, the order a reset-aware hub serves in; unreadable last.
     expect(pooled?.pool?.members.map((member) => member.label)).toEqual([
+      "soonest@example.com",
       "max5@example.com",
       "max20@example.com",
       "broken",
     ]);
+    const renamed = { ...routed, displayName: "Pool" };
+    expect(
+      collectProviderUsageLimits(routed.instanceId, [renamed], [hub], now)?.accounts[0]?.label,
+    ).toBe("Pool · hub");
     // A direct instance on the same environment keeps its per-account report.
     expect(
       collectProviderUsageLimits(selected.instanceId, [selected, routed], [hub], now)?.accounts[0]

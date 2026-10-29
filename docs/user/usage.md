@@ -142,9 +142,9 @@ environment that will connect to the hub and enter its URL and management key.
 The accounts appear under **Usage → Limits**. Codex accounts show banked reset credits; select an
 account and choose **Use reset** to redeem one. No hub plugin is required.
 
-This connection supplies usage information; configure
-the provider separately to send agent requests through the hub. Remove the hub from the same
-settings section when you no longer need it.
+This connection supplies usage information. To also send Claude requests through the hub, see
+[Route Claude through a CLIProxyAPI hub](./providers-claude.md#route-claude-through-a-cliproxyapi-hub).
+Remove the hub from the same settings section when you no longer need it.
 
 ## Subscription usage widget
 

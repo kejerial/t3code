@@ -513,7 +513,7 @@ function poolWindows(accounts: readonly LimitAccount[], now: number): readonly L
 }
 
 /** The hub a provider instance sends its traffic through, if any. */
-export function pooledHubSource(
+function pooledHubSource(
   instanceId: ProviderInstanceId,
   sources: UsageLimitSourceSnapshots,
 ): UsageLimitSourceSnapshot | null {
@@ -531,12 +531,23 @@ export function isMainUsageWindow(window: ServerProviderUsageWindow): boolean {
   return !window.label.includes(" · ");
 }
 
+function weeklyResetAt(account: UsageLimitSourceAccount): number {
+  if (limitsNotice(account.usageLimits) !== null) return Number.POSITIVE_INFINITY;
+  const weekly = account.usageLimits.windows.find(
+    (window) => window.kind === "weekly" && isMainUsageWindow(window),
+  );
+  return weekly?.resetsAt ? Date.parse(weekly.resetsAt) : Number.POSITIVE_INFINITY;
+}
+
 export function poolHubAccounts(
   accounts: readonly UsageLimitSourceAccount[],
   driver: ServerProvider["driver"],
   now: number,
 ): HubPool {
-  const members = accounts.filter((account) => account.driver === driver);
+  // Soonest weekly reset first: the order a reset-aware hub drains accounts in.
+  const members = accounts
+    .filter((account) => account.driver === driver)
+    .sort((left, right) => weeklyResetAt(left) - weeklyResetAt(right));
   const readable = members.flatMap((account): LimitAccount[] =>
     limitsNotice(account.usageLimits) === null
       ? [
@@ -577,12 +588,11 @@ export function hubAccountLabel(account: UsageLimitSourceAccount): string {
 
 const POOL_DRIVER_NAMES: Record<string, string> = { claudeAgent: "Claude", codex: "Codex" };
 
-/** One entry for an instance whose hub picks the account: "Claude · hub" unless renamed. */
+/** One entry for an instance whose hub picks the account, such as "Claude · hub". */
 export function pooledInstanceName(provider: ServerProvider): string {
-  return (
-    provider.displayName?.trim() ||
-    `${POOL_DRIVER_NAMES[provider.driver] ?? String(provider.driver)} · hub`
-  );
+  const name =
+    provider.displayName?.trim() || POOL_DRIVER_NAMES[provider.driver] || String(provider.driver);
+  return `${name} · hub`;
 }
 
 function pooledUsageReport(

@@ -201,7 +201,7 @@ function PoolMembers({ pool, now }: { readonly pool: SidebarUsagePool; readonly 
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="flex cursor-pointer items-center gap-1 self-start rounded-sm text-2xs leading-none text-sidebar-muted-foreground outline-none hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-ring/70"
+        className="flex cursor-pointer items-center gap-1 self-start rounded-sm text-2xs leading-none text-sidebar-muted-foreground outline-none hover:text-sidebar-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
         data-testid="sidebar-usage-pool-members-toggle"
       >
         <ChevronRightIcon

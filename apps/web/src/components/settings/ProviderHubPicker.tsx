@@ -51,12 +51,12 @@ export function ProviderHubPicker({
   if (linkedId) {
     return (
       <SettingsRow
-        title="Hub"
+        title={linked ? `Routed through ${hubLabel(linked)}` : "Hub removed"}
         description={
           linked ? (
             <>
-              Requests go through {hubLabel(linked)} at <code>{linked.url}</code>. The hub picks the
-              account; usage shows its pooled quota.
+              Requests go to <code>{linked.url}</code>. The hub picks the account; usage shows its
+              pooled quota.
             </>
           ) : (
             "The hub this instance used was removed. Stop using it, or add the hub again."
