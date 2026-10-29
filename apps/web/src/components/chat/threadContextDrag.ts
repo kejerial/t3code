@@ -3,11 +3,23 @@ import { type RefObject, useEffect, useEffectEvent, useSyncExternalStore } from 
 
 export const THREAD_CONTEXT_DROP_EVENT = "t3-thread-context-drop";
 
+/** The half of the drop target the pointer is over; split panes open on that side. */
+export type ThreadDropSide = "before" | "after";
+
+interface ThreadContextDropDetail {
+  readonly threads: ReadonlyArray<ScopedThreadRef>;
+  readonly side: ThreadDropSide;
+}
+
 export function useThreadContextDrop(
   targetRef: RefObject<EventTarget | null>,
-  environmentId: EnvironmentId,
+  environmentId: EnvironmentId | null,
   targetKey: string,
-  onDrop: (refs: ReadonlyArray<ScopedThreadRef>, isActive: () => boolean) => void,
+  onDrop: (
+    refs: ReadonlyArray<ScopedThreadRef>,
+    isActive: () => boolean,
+    side: ThreadDropSide,
+  ) => void,
 ) {
   const handleDrop = useEffectEvent(onDrop);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes the target element to thread-context drop events and marks old drops inactive
@@ -15,8 +27,10 @@ export function useThreadContextDrop(
     const target = targetRef.current;
     if (!target) return;
     let active = true;
-    const listener = (event: Event) =>
-      handleDrop((event as CustomEvent<ReadonlyArray<ScopedThreadRef>>).detail, () => active);
+    const listener = (event: Event) => {
+      const { threads, side } = (event as CustomEvent<ThreadContextDropDetail>).detail;
+      handleDrop(threads, () => active, side);
+    };
     target.addEventListener(THREAD_CONTEXT_DROP_EVENT, listener);
     return () => {
       active = false;
@@ -70,16 +84,19 @@ function findDropTarget(point: { x: number; y: number }): HTMLElement | null {
   );
 }
 
+function dropSide(target: HTMLElement, point: { x: number }): ThreadDropSide {
+  const bounds = target.getBoundingClientRect();
+  return point.x < bounds.left + bounds.width / 2 ? "before" : "after";
+}
+
 export function moveThreadContextDrag(
   point: { x: number; y: number },
   label: { title: string; count: number },
 ) {
   const target = findDropTarget(point);
-  if (target !== overTarget) {
-    overTarget?.removeAttribute(DROP_OVER_ATTRIBUTE);
-    target?.setAttribute(DROP_OVER_ATTRIBUTE, "true");
-    overTarget = target;
-  }
+  if (target !== overTarget) overTarget?.removeAttribute(DROP_OVER_ATTRIBUTE);
+  target?.setAttribute(DROP_OVER_ATTRIBUTE, dropSide(target, point));
+  overTarget = target;
   setGhost({ x: point.x, y: point.y, ...label });
 }
 
@@ -95,7 +112,8 @@ export function dropThreadContext(
 ): boolean {
   const target = findDropTarget(point);
   if (!target || threads.length === 0) return false;
-  target.dispatchEvent(new CustomEvent(THREAD_CONTEXT_DROP_EVENT, { detail: threads }));
+  const detail: ThreadContextDropDetail = { threads, side: dropSide(target, point) };
+  target.dispatchEvent(new CustomEvent(THREAD_CONTEXT_DROP_EVENT, { detail }));
   return true;
 }
 

@@ -3,8 +3,6 @@ import { Navigate, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 
 import ChatView from "./ChatView";
-import { BackgroundThreadContext } from "./chat/backgroundThread";
-import { SidebarInset } from "./ui/sidebar";
 import { useComposerDraftStore } from "../composerDraftStore";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
 import { useEnvironmentThreadRefs, useQuietThreadShell } from "../state/entities";
@@ -18,17 +16,19 @@ import {
 } from "../threadRoutes";
 
 /**
- * Unkeyed so navigating between server threads reuses one ChatView. Rendered by the `_chat`
- * layout, since an element only survives a route swap when the same parent renders it. Draft
- * promotion runs in the draft store; this only follows the redirect it leaves behind.
- * `background` keeps the thread mounted, inert and in place under Settings or Usage.
+ * Unkeyed so navigating between server threads reuses one ChatView. Rendered by the split view
+ * in the `_chat` layout, since an element only survives a route swap when the same parent renders
+ * it. Draft promotion runs in the draft store; this only follows the redirect it leaves behind.
+ * Only the routed pane (`routed`) redirects or leaves a missing thread; another pane reports it.
  */
 export function ThreadRouteView({
   target,
-  background = false,
+  routed,
+  onMissing,
 }: {
   target: ThreadRouteTarget;
-  background?: boolean;
+  routed: boolean;
+  onMissing: () => void;
 }) {
   const navigate = useNavigate();
   const draftId = target.kind === "draft" ? target.draftId : null;
@@ -89,7 +89,7 @@ export function ThreadRouteView({
   });
   const environmentHasAnyThreads = environmentThreadRefs.length > 0 || environmentHasDraftThreads;
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- clears pending file drops and navigates the router home once a server thread is confirmed missing
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- clears pending file drops and leaves a server thread once it is confirmed missing
   useEffect(() => {
     if (target.kind !== "server" || !bootstrapComplete) {
       return;
@@ -97,11 +97,18 @@ export function ThreadRouteView({
     if (renderState === "missing") {
       const { clearPendingFileDropsForThread } = useSidebarPendingFileDropStore.getState();
       clearPendingFileDropsForThread(target.threadRef);
-      if (environmentHasAnyThreads && !background) {
-        void navigate({ to: "/", replace: true });
-      }
+      if (!routed) onMissing();
+      else if (environmentHasAnyThreads) void navigate({ to: "/", replace: true });
     }
-  }, [background, bootstrapComplete, environmentHasAnyThreads, navigate, renderState, target]);
+  }, [
+    bootstrapComplete,
+    environmentHasAnyThreads,
+    navigate,
+    onMissing,
+    renderState,
+    routed,
+    target,
+  ]);
 
   let view: React.ReactNode = null;
   let redirect: React.ReactNode = null;
@@ -149,12 +156,9 @@ export function ThreadRouteView({
   }
 
   return (
-    <SidebarInset
-      className="h-svh min-h-0 overflow-hidden overscroll-y-none md:h-dvh"
-      inert={background}
-    >
-      <BackgroundThreadContext value={background}>{view}</BackgroundThreadContext>
-      {background ? null : redirect}
-    </SidebarInset>
+    <>
+      {view}
+      {routed ? redirect : null}
+    </>
   );
 }
