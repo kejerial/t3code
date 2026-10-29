@@ -1,5 +1,5 @@
 import type { ServerProviderUsageWindow } from "@t3tools/contracts";
-import type { LimitAccount } from "@t3tools/shared/usageLimits";
+import { type LimitAccount, remainingPercent } from "@t3tools/shared/usageLimits";
 
 export type SidebarUsageTone = "normal" | "warning" | "critical";
 
@@ -17,14 +17,10 @@ export interface SidebarUsageAccount {
 
 const WINDOW_ORDER: Record<string, number> = { session: 0, weekly: 1, monthly: 2 };
 
-export function usedPercent(window: ServerProviderUsageWindow): number {
-  return Math.round(Math.max(0, Math.min(100, window.usedPercent)));
-}
-
 export function usageTone(window: ServerProviderUsageWindow): SidebarUsageTone {
-  const used = usedPercent(window);
-  if (used >= 90) return "critical";
-  if (used >= 75) return "warning";
+  const left = remainingPercent(window);
+  if (left <= 10) return "critical";
+  if (left <= 25) return "warning";
   return "normal";
 }
 

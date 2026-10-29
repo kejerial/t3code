@@ -114,12 +114,12 @@ describe("SidebarUsageLimits", () => {
     const accountRows = rows(screen.container);
     expect(accountRows).toHaveLength(2);
     expect(accountRows[0]).toContain("alpha");
-    expect(accountRows[0]).toContain("5-hour12%");
-    expect(accountRows[0]).toContain("Weekly40%");
+    expect(accountRows[0]).toContain("5-hour88%");
+    expect(accountRows[0]).toContain("Weekly60%");
     expect(accountRows[1]).toContain("beta");
     expect(screen.container.textContent).not.toContain("gone");
     expect(
-      screen.container.querySelector('[aria-label="Weekly: 40% used, resets in 2d 0h"]'),
+      screen.container.querySelector('[aria-label="Weekly: 60% left, resets in 2d 0h"]'),
     ).not.toBeNull();
   });
 
@@ -132,7 +132,7 @@ describe("SidebarUsageLimits", () => {
         .querySelector<HTMLButtonElement>('[data-testid="sidebar-usage-toggle"]')
         ?.click(),
     );
-    expect(rows(screen.container)).toEqual(["alpha40%", "beta80%"]);
+    expect(rows(screen.container)).toEqual(["alpha60%", "beta20%"]);
 
     await using again = await render(<SidebarUsageLimits />);
     expect(

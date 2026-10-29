@@ -1,6 +1,10 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { ServerProvider, ServerProviderUsageWindow } from "@t3tools/contracts";
-import { collectLimitAccounts, formatResetsIn } from "@t3tools/shared/usageLimits";
+import {
+  collectLimitAccounts,
+  formatResetsIn,
+  remainingPercent,
+} from "@t3tools/shared/usageLimits";
 import * as Schema from "effect/Schema";
 import { memo } from "react";
 
@@ -17,7 +21,6 @@ import {
   type SidebarUsageAccount,
   sidebarUsageAccounts,
   usageTone,
-  usedPercent,
 } from "./SidebarUsageLimits.logic";
 
 const SIDEBAR_USAGE_EXPANDED_KEY = "t3code:sidebar-usage-expanded";
@@ -43,7 +46,10 @@ function UsageBar({
     <div aria-hidden className="h-1 w-full overflow-hidden rounded-full bg-muted">
       <div
         className="h-full rounded-full"
-        style={{ width: `${usedPercent(window)}%`, backgroundColor: fillColor(driver, window) }}
+        style={{
+          width: `${remainingPercent(window)}%`,
+          backgroundColor: fillColor(driver, window),
+        }}
       />
     </div>
   );
@@ -69,7 +75,7 @@ function WindowTooltip({
       <TooltipPopup side="right">
         <div className="flex flex-col gap-0.5">
           <span className="text-foreground">
-            {window.label}: {usedPercent(window)}% used
+            {window.label}: {remainingPercent(window)}% left
           </span>
           {resetsAt ? (
             <span className="text-muted-foreground">
@@ -85,7 +91,7 @@ function WindowTooltip({
 
 function windowSummary(window: ServerProviderUsageWindow, now: number) {
   const resetsIn = formatResetsIn(window, now);
-  return `${window.label}: ${usedPercent(window)}% used${resetsIn ? `, ${resetsIn}` : ""}`;
+  return `${window.label}: ${remainingPercent(window)}% left${resetsIn ? `, ${resetsIn}` : ""}`;
 }
 
 function ExpandedAccount({
@@ -124,7 +130,7 @@ function ExpandedAccount({
             <span className="flex items-baseline gap-1.5 text-2xs leading-none tabular-nums">
               <span className="truncate text-sidebar-muted-foreground">{window.label}</span>
               <span className="shrink-0 font-medium text-sidebar-foreground">
-                {usedPercent(window)}%
+                {remainingPercent(window)}%
               </span>
               <span className="ms-auto shrink-0 text-sidebar-muted-foreground">
                 {formatResetsIn(window, now) ?? ""}
@@ -160,7 +166,7 @@ function CollapsedAccount({
           </span>
           <UsageBar driver={account.driver} window={window} />
           <span className="w-8 shrink-0 text-right font-medium text-sidebar-foreground">
-            {usedPercent(window)}%
+            {remainingPercent(window)}%
           </span>
         </div>
       </WindowTooltip>
