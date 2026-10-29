@@ -218,6 +218,13 @@ export function useComposerMenuItems({
           label: "/model",
           description: "Switch response model for this thread",
         },
+        {
+          id: "slash:btw",
+          type: "slash-command",
+          command: "btw",
+          label: "/btw",
+          description: "Ask a side question with this thread's context",
+        },
         ...(planModeUiEnabled
           ? ([
               {

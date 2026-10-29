@@ -64,6 +64,7 @@ import {
   MessageSquareDashedIcon,
   LinkIcon,
   MessageSquareIcon,
+  MessageSquareQuoteIcon,
   PaletteIcon,
   RotateCcwIcon,
   SettingsIcon,
@@ -90,6 +91,7 @@ import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstra
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
 import { useOpenPanelPullRequestUrl } from "../hooks/useOpenPanelPullRequestUrl";
 import { copyThreadReference } from "../lib/copyThreadReference";
+import { openSideChat } from "../lib/sideChat";
 import {
   queueWorkspaceFocusFromPalette,
   restoreWorkspaceFocusFromPalette,
@@ -1213,6 +1215,20 @@ function OpenCommandPaletteDialog(props: {
       description: "An agent investigates a T3 Code problem and helps file an issue",
       icon: <BugIcon className={ITEM_ICON_CLASS} />,
       run: () => startTriage(triageEnvironmentId),
+    });
+  }
+
+  if (activeThread) {
+    actionItems.push({
+      kind: "action",
+      value: "open-side-chat",
+      title: "Open side chat",
+      searchTerms: ["side", "chat", "btw", "aside", "question"],
+      icon: <MessageSquareQuoteIcon className={ITEM_ICON_CLASS} />,
+      shortcutCommand: "chat.aside",
+      run: async () => {
+        await openSideChat(scopeThreadRef(activeThread.environmentId, activeThread.id));
+      },
     });
   }
 

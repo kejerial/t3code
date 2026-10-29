@@ -18,7 +18,7 @@ import {
 import { resolveShortcutCommand, type ShortcutEventLike } from "./keybindings";
 
 export type ComposerTriggerKind = "path" | "pull-request" | "slash-command" | "skill";
-export type ComposerSlashCommand = "model" | "plan" | "default";
+export type ComposerSlashCommand = "model" | "plan" | "default" | "btw";
 export type ComposerSubmissionIntent = "foreground" | "background" | "alternate";
 
 export interface ComposerTrigger {
@@ -318,9 +318,15 @@ export function composerStateAtPromptEnd(
   };
 }
 
+/** `/btw <question>` asks the question in a side chat; the question may be empty. */
+export function parseSideChatComposerCommand(text: string): { readonly question: string } | null {
+  const match = /^\/btw(?:\s+([\s\S]*))?$/i.exec(text.trim());
+  return match ? { question: (match[1] ?? "").trim() } : null;
+}
+
 export function parseStandaloneComposerSlashCommand(
   text: string,
-): Exclude<ComposerSlashCommand, "model"> | null {
+): Exclude<ComposerSlashCommand, "model" | "btw"> | null {
   const match = /^\/(plan|default)\s*$/i.exec(text.trim());
   if (!match) {
     return null;
