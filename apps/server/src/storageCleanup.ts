@@ -1,4 +1,5 @@
 import {
+  CommandId,
   GitCommandError,
   OrchestrationV2AppThreadJson,
   OrchestrationV2ProviderSessionJson,
@@ -700,6 +701,86 @@ const make = Effect.gen(function* () {
       });
   });
 
+  // Delete only when a remote ref or a merged pull request holds the tip, and only that tip.
+  const deleteBranchIfSafe = Effect.fn("StorageCleanup.deleteBranchIfSafe")(function* (
+    cwd: string,
+    branch: string,
+  ) {
+    const ref = `refs/heads/${branch}`;
+    const tip = yield* git.execute({
+      operation: "StorageCleanup.branchTip",
+      cwd,
+      args: ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`],
+      allowNonZeroExit: true,
+    });
+    if (tip.exitCode !== 0) return "branch was already gone";
+    const sha = tip.stdout.trim();
+    const remote = yield* git.resolvePrimaryRemoteName(cwd);
+    if (branch === (yield* git.resolveDefaultBranchName(cwd, remote)))
+      return "kept the default branch";
+    const worktrees = yield* git.execute({
+      operation: "StorageCleanup.branchWorktrees",
+      cwd,
+      args: ["worktree", "list", "--porcelain"],
+    });
+    if (worktrees.stdout.split(/\r?\n/).includes(`branch ${ref}`))
+      return "kept the branch because another checkout uses it";
+    const remoteRefs = yield* git.execute({
+      operation: "StorageCleanup.branchOnRemote",
+      cwd,
+      args: ["for-each-ref", "--contains", sha, "--count=1", "--format=%(refname)", "refs/remotes"],
+    });
+    const pullRequest =
+      remoteRefs.stdout.trim() === ""
+        ? yield* gitManager
+            .branchPullRequest({ cwd, branch }, { refresh: true })
+            .pipe(Effect.orElseSucceed(() => null))
+        : null;
+    if (
+      remoteRefs.stdout.trim() === "" &&
+      !(pullRequest?.state === "merged" && pullRequest.headSha === sha)
+    )
+      return "kept the branch because it has unpushed commits";
+    yield* git.execute({
+      operation: "StorageCleanup.deleteBranch",
+      cwd,
+      args: ["update-ref", "-d", ref, sha],
+    });
+    return "deleted the branch";
+  });
+
+  const archiveSettledThread = Effect.fn("StorageCleanup.archiveSettledThread")(function* (
+    thread: Pick<OrchestrationV2ThreadShell, "id" | "branch" | "settledAt">,
+    workspaceRoot: string,
+  ) {
+    const cwd = path.resolve(workspaceRoot);
+    const branchNote =
+      thread.branch === null
+        ? null
+        : yield* deleteBranchIfSafe(cwd, thread.branch).pipe(
+            Effect.catch((error) =>
+              Effect.succeed(`kept the branch: ${cleanupFailureReason(error)}`),
+            ),
+          );
+    if (branchNote === "deleted the branch") yield* gitManager.invalidateStatus(cwd);
+    // Keyed by settle time so a thread unarchived and settled again archives again.
+    const archiveNote = yield* engine
+      .dispatch({
+        type: "thread.archive",
+        commandId: CommandId.make(
+          `server:archive-settled:${thread.id}:${DateTime.toEpochMillis(thread.settledAt!)}`,
+        ),
+        threadId: thread.id,
+      })
+      .pipe(
+        Effect.as("archived the thread"),
+        Effect.catch((error) =>
+          Effect.succeed(`could not archive the thread: ${cleanupFailureReason(error)}`),
+        ),
+      );
+    return [branchNote, archiveNote].filter((note) => note !== null).join("; ");
+  });
+
   const cleanWorktrees = Effect.fn("StorageCleanup.cleanWorktrees")(function* (
     serverSettings: ServerSettings,
     now: number,
@@ -768,6 +849,16 @@ const make = Effect.gen(function* () {
       const project = deleted
         ? { workspaceRoot: thread.workspaceRoot }
         : snapshot.projects.find((entry) => entry.id === thread.projectId);
+      const settledFor =
+        deleted || thread.settledAt === null
+          ? null
+          : now - Math.max(DateTime.toEpochMillis(thread.settledAt), activityAt);
+      const settledDays = settledFor === null ? null : Math.floor(settledFor / DAY_MS);
+      const settled =
+        settledFor !== null &&
+        settings.worktreeSettledAfterDays !== null &&
+        settledFor >= settings.worktreeSettledAfterDays * DAY_MS;
+      const archiveDue = settled && settings.worktreeSettledArchive && thread.archivedAt === null;
       const entry: StorageCleanupReportEntry = {
         kind: "worktree",
         outcome: "kept",
@@ -781,7 +872,22 @@ const make = Effect.gen(function* () {
       };
       const keep = (reason: string) => entries.push({ ...entry, reason: sentence(reason) });
       yield* Effect.gen(function* () {
-        if (!(yield* fs.exists(worktreePath))) return;
+        if (!(yield* fs.exists(worktreePath))) {
+          // An earlier rule removed the checkout; the settled thread still needs archiving.
+          if (
+            archiveDue &&
+            project !== undefined &&
+            group.every((member) => storageCleanupThreadIdle(member, now))
+          )
+            entries.push({
+              ...entry,
+              outcome: "removed",
+              reason: sentence(
+                `settled for ${settledDays} days; ${yield* archiveSettledThread(thread, project.workspaceRoot)}`,
+              ),
+            });
+          return;
+        }
         if (deleted && !settings.worktreeOnDelete) return keep("no rules apply");
         if (members.length > 1 && worktreeOwner(members) === undefined)
           return keep(`shared by ${members.length} threads`);
@@ -823,15 +929,6 @@ const make = Effect.gen(function* () {
           !deleted &&
           settings.worktreeAfterDays !== null &&
           activityAt < now - settings.worktreeAfterDays * DAY_MS;
-        const settledFor =
-          deleted || thread.settledAt === null
-            ? null
-            : now - Math.max(DateTime.toEpochMillis(thread.settledAt), activityAt);
-        const settledDays = settledFor === null ? null : Math.floor(settledFor / DAY_MS);
-        const settled =
-          settledFor !== null &&
-          settings.worktreeSettledAfterDays !== null &&
-          settledFor >= settings.worktreeSettledAfterDays * DAY_MS;
         let eligible = deleted || old || settled;
         let removalReason = deleted
           ? "thread was deleted"
@@ -1023,9 +1120,19 @@ const make = Effect.gen(function* () {
           execute: git.execute,
           run: (args) => cleanupGit(project.workspaceRoot, [...args], "git worktree remove"),
         });
-        entries.push({ ...entry, outcome: "removed", reason: sentence(removalReason), bytes });
         yield* gitManager.invalidateStatus(project.workspaceRoot);
         // Preserve branch/path so ProviderTurnStartService can recreate the checkout on resume.
+        const archiveNote = archiveDue
+          ? yield* archiveSettledThread(thread, project.workspaceRoot)
+          : null;
+        entries.push({
+          ...entry,
+          outcome: "removed",
+          reason: sentence(
+            archiveNote === null ? removalReason : `${removalReason}; ${archiveNote}`,
+          ),
+          bytes,
+        });
         yield* Effect.logInfo("storage cleanup removed worktree", { threadId: thread.id });
       }).pipe(
         (effect) => withWorkspaceLease(worktreePath, effect),

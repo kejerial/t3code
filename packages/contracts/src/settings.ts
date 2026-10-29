@@ -973,6 +973,7 @@ export const WorktreeCleanupRules = Schema.Struct({
   worktreeSettledAfterDays: SettledWorktreeRetentionDays.pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  worktreeSettledArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   worktreeOnMerge: Schema.Boolean,
   worktreeOnDelete: Schema.Boolean,
   worktreeUnchanged: Schema.Boolean,
@@ -1125,6 +1126,7 @@ export const StorageCleanupSettings = Schema.Struct({
   worktreeSettledAfterDays: SettledWorktreeRetentionDays.pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
+  worktreeSettledArchive: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   worktreeOnMerge: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   worktreeOnDelete: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   worktreeUnchanged: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
@@ -1496,6 +1498,7 @@ export const ServerSettingsPatch = Schema.Struct({
             worktreeKeepWhen: Schema.optionalKey(WorktreeKeepWhen),
             worktreeAfterDays: Schema.optionalKey(StorageRetentionDays),
             worktreeSettledAfterDays: Schema.optionalKey(SettledWorktreeRetentionDays),
+            worktreeSettledArchive: Schema.optionalKey(Schema.Boolean),
             worktreeOnMerge: Schema.optionalKey(Schema.Boolean),
             worktreeOnDelete: Schema.optionalKey(Schema.Boolean),
             worktreeUnchanged: Schema.optionalKey(Schema.Boolean),
@@ -1509,6 +1512,7 @@ export const ServerSettingsPatch = Schema.Struct({
       worktreeKeepWhen: Schema.optionalKey(WorktreeKeepWhen),
       worktreeAfterDays: Schema.optionalKey(StorageRetentionDays),
       worktreeSettledAfterDays: Schema.optionalKey(SettledWorktreeRetentionDays),
+      worktreeSettledArchive: Schema.optionalKey(Schema.Boolean),
       worktreeOnMerge: Schema.optionalKey(Schema.Boolean),
       worktreeOnDelete: Schema.optionalKey(Schema.Boolean),
       worktreeUnchanged: Schema.optionalKey(Schema.Boolean),

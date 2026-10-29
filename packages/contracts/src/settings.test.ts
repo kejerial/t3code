@@ -33,6 +33,7 @@ describe("storage cleanup settings", () => {
     expect(decodeServerSettings({}).storageCleanup).toEqual({
       worktreeAfterDays: null,
       worktreeSettledAfterDays: null,
+      worktreeSettledArchive: false,
       worktreeOnMerge: false,
       worktreeOnDelete: false,
       worktreeUnchanged: false,
