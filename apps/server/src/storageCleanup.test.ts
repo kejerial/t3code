@@ -1899,56 +1899,63 @@ it.live("keeps saved usage data when removing a settled checkout", () =>
 );
 
 describe("settled thread archiving", () => {
-  it.effect.each(["pushed", "merged-pr", "unpushed", "already-removed", "off"] as const)(
-    "archives the thread and deletes only a preserved branch (%s)",
-    (scenario) =>
-      Effect.gen(function* () {
-        yield* TestClock.setTime(NOW_MS);
-        const fixture = yield* cleanupFixture();
-        const remote = yield* fixture.fs.makeTempDirectoryScoped({ prefix: "cleanup-remote-" });
-        yield* fixture.command(remote, ["init", "--bare", "-b", "main"]);
-        yield* fixture.command(fixture.repo, ["remote", "add", "origin", remote]);
-        yield* fixture.command(fixture.repo, ["push", "origin", "main"]);
-        yield* fixture.command(fixture.repo, ["remote", "set-head", "origin", "main"]);
-        yield* fixture.fs.writeFileString(`${fixture.worktree}/feature.txt`, "work\n");
-        yield* fixture.command(fixture.worktree, ["add", "."]);
-        yield* fixture.command(fixture.worktree, ["commit", "-m", "feature"]);
-        const tip = (yield* fixture.command(fixture.worktree, ["rev-parse", "HEAD"])).stdout.trim();
-        if (scenario !== "unpushed" && scenario !== "merged-pr")
-          yield* fixture.command(fixture.worktree, ["push", "origin", "feature"]);
-        if (scenario === "merged-pr")
-          fixture.setPullRequest({
-            state: "merged",
-            headSha: tip,
-          } as GitManager.GitBranchPullRequest);
-        if (scenario === "already-removed")
-          yield* fixture.command(fixture.repo, ["worktree", "remove", fixture.worktree]);
-        fixture.setSettings({
-          storageCleanup: {
-            ...DEFAULT_SERVER_SETTINGS.storageCleanup,
-            worktreeSettledAfterDays: 2,
-            worktreeSettledArchive: scenario !== "off",
-          },
-        });
-        fixture.setThreads([
-          shell({ branch: "feature", worktreePath: fixture.worktree, settledAt: at(-3 * DAY_MS) }),
-        ]);
-        const report = yield* fixture.service.runNow;
-        const branch = yield* fixture.command(fixture.repo, ["branch", "--list", "feature"]);
-        expect(yield* fixture.fs.exists(fixture.worktree)).toBe(false);
-        expect(branch.stdout.trim() === "").toBe(scenario !== "unpushed" && scenario !== "off");
-        expect(fixture.dispatched).toEqual(
-          scenario === "off" ? [] : [expect.objectContaining({ type: "thread.archive" })],
-        );
-        expect(report.entries[0]).toMatchObject({
-          outcome: "removed",
-          reason:
-            scenario === "off"
-              ? "Settled for 3 days"
-              : scenario === "unpushed"
-                ? "Settled for 3 days; kept the branch because it has unpushed commits; archived the thread"
-                : "Settled for 3 days; deleted the branch; archived the thread",
-        });
-      }).pipe(Effect.provide(cleanupTestLayer), Effect.scoped),
+  it.effect.each([
+    "pushed",
+    "merged-locally",
+    "merged-pr",
+    "unpushed",
+    "already-removed",
+    "off",
+  ] as const)("archives the thread and deletes only a preserved branch (%s)", (scenario) =>
+    Effect.gen(function* () {
+      yield* TestClock.setTime(NOW_MS);
+      const fixture = yield* cleanupFixture();
+      const remote = yield* fixture.fs.makeTempDirectoryScoped({ prefix: "cleanup-remote-" });
+      yield* fixture.command(remote, ["init", "--bare", "-b", "main"]);
+      yield* fixture.command(fixture.repo, ["remote", "add", "origin", remote]);
+      yield* fixture.command(fixture.repo, ["push", "origin", "main"]);
+      yield* fixture.command(fixture.repo, ["remote", "set-head", "origin", "main"]);
+      yield* fixture.fs.writeFileString(`${fixture.worktree}/feature.txt`, "work\n");
+      yield* fixture.command(fixture.worktree, ["add", "."]);
+      yield* fixture.command(fixture.worktree, ["commit", "-m", "feature"]);
+      const tip = (yield* fixture.command(fixture.worktree, ["rev-parse", "HEAD"])).stdout.trim();
+      if (scenario === "merged-locally")
+        yield* fixture.command(fixture.repo, ["merge", "--ff-only", "feature"]);
+      else if (scenario !== "unpushed" && scenario !== "merged-pr")
+        yield* fixture.command(fixture.worktree, ["push", "origin", "feature"]);
+      if (scenario === "merged-pr")
+        fixture.setPullRequest({
+          state: "merged",
+          headSha: tip,
+        } as GitManager.GitBranchPullRequest);
+      if (scenario === "already-removed")
+        yield* fixture.command(fixture.repo, ["worktree", "remove", fixture.worktree]);
+      fixture.setSettings({
+        storageCleanup: {
+          ...DEFAULT_SERVER_SETTINGS.storageCleanup,
+          worktreeSettledAfterDays: 2,
+          worktreeSettledArchive: scenario !== "off",
+        },
+      });
+      fixture.setThreads([
+        shell({ branch: "feature", worktreePath: fixture.worktree, settledAt: at(-3 * DAY_MS) }),
+      ]);
+      const report = yield* fixture.service.runNow;
+      const branch = yield* fixture.command(fixture.repo, ["branch", "--list", "feature"]);
+      expect(yield* fixture.fs.exists(fixture.worktree)).toBe(false);
+      expect(branch.stdout.trim() === "").toBe(scenario !== "unpushed" && scenario !== "off");
+      expect(fixture.dispatched).toEqual(
+        scenario === "off" ? [] : [expect.objectContaining({ type: "thread.archive" })],
+      );
+      expect(report.entries[0]).toMatchObject({
+        outcome: "removed",
+        reason:
+          scenario === "off"
+            ? "Settled for 3 days"
+            : scenario === "unpushed"
+              ? "Settled for 3 days; kept the branch because it has unpushed commits; archived the thread"
+              : "Settled for 3 days; deleted the branch; archived the thread",
+      });
+    }).pipe(Effect.provide(cleanupTestLayer), Effect.scoped),
   );
 });

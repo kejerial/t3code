@@ -701,7 +701,7 @@ const make = Effect.gen(function* () {
       });
   });
 
-  // Delete only when a remote ref or a merged pull request holds the tip, and only that tip.
+  // Delete only when a remote ref, the default branch, or a merged pull request holds the tip, and only that tip.
   const deleteBranchIfSafe = Effect.fn("StorageCleanup.deleteBranchIfSafe")(function* (
     cwd: string,
     branch: string,
@@ -716,8 +716,8 @@ const make = Effect.gen(function* () {
     if (tip.exitCode !== 0) return "branch was already gone";
     const sha = tip.stdout.trim();
     const remote = yield* git.resolvePrimaryRemoteName(cwd);
-    if (branch === (yield* git.resolveDefaultBranchName(cwd, remote)))
-      return "kept the default branch";
+    const defaultBranch = yield* git.resolveDefaultBranchName(cwd, remote);
+    if (branch === defaultBranch) return "kept the default branch";
     const worktrees = yield* git.execute({
       operation: "StorageCleanup.branchWorktrees",
       cwd,
@@ -725,19 +725,27 @@ const make = Effect.gen(function* () {
     });
     if (worktrees.stdout.split(/\r?\n/).includes(`branch ${ref}`))
       return "kept the branch because another checkout uses it";
-    const remoteRefs = yield* git.execute({
+    const holders = yield* git.execute({
       operation: "StorageCleanup.branchOnRemote",
       cwd,
-      args: ["for-each-ref", "--contains", sha, "--count=1", "--format=%(refname)", "refs/remotes"],
+      args: [
+        "for-each-ref",
+        "--contains",
+        sha,
+        "--count=1",
+        "--format=%(refname)",
+        "refs/remotes",
+        ...(defaultBranch === null ? [] : [`refs/heads/${defaultBranch}`]),
+      ],
     });
     const pullRequest =
-      remoteRefs.stdout.trim() === ""
+      holders.stdout.trim() === ""
         ? yield* gitManager
             .branchPullRequest({ cwd, branch }, { refresh: true })
             .pipe(Effect.orElseSucceed(() => null))
         : null;
     if (
-      remoteRefs.stdout.trim() === "" &&
+      holders.stdout.trim() === "" &&
       !(pullRequest?.state === "merged" && pullRequest.headSha === sha)
     )
       return "kept the branch because it has unpushed commits";
