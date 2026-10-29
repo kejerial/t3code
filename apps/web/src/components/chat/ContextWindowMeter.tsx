@@ -1,9 +1,11 @@
 import { Button } from "../ui/button";
+import { cn } from "~/lib/utils";
 import { type ContextWindowSnapshot, formatContextWindowTokens } from "~/lib/contextWindow";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
 import {
   formatContextWindowCompactionMessage,
   formatContextWindowCost,
+  resolveContextBarFill,
 } from "./ContextWindowMeter.logic";
 import { Minimize2Icon } from "lucide-react";
 import { composerFloatingLayerProps } from "./composerEventScope";
@@ -24,8 +26,11 @@ export function ContextWindowMeter(props: {
   onCompact?: (() => void) | undefined;
   compactDisabled?: boolean | undefined;
   compactDisabledReason?: string | null | undefined;
+  /** "bar" renders a full-width strip above the prompt instead of the footer ring. */
+  variant?: "ring" | "bar";
 }) {
   const { usage, modelDisplayName, onCompact, compactDisabled, compactDisabledReason } = props;
+  const barFill = props.variant === "bar" ? resolveContextBarFill(usage) : null;
   const usedPercentage = formatPercentage(usage.usedPercentage);
   const normalizedPercentage = Math.max(0, Math.min(100, usage.usedPercentage ?? 0));
   const radius = 9.75;
@@ -45,45 +50,73 @@ export function ContextWindowMeter(props: {
         delay={150}
         closeDelay={onCompact ? 150 : 0}
         render={
-          <Button
-            size="icon-sm"
-            variant="ghost-muted"
-            className="size-7"
-            aria-label={
-              usage.maxTokens !== null && usedPercentage
-                ? `Context window ${usedPercentage} used`
-                : `Context window ${formatContextWindowTokens(usage.usedTokens)} tokens used`
-            }
-          >
-            <span className="relative flex size-5 items-center justify-center">
-              <svg
-                viewBox="0 0 24 24"
-                className="-rotate-90 absolute inset-0 size-full transform-gpu mx-0!"
-                aria-hidden="true"
-              >
-                <circle
-                  cx="12"
-                  cy="12"
-                  r={radius}
-                  fill="none"
-                  className="stroke-muted-foreground/24"
-                  strokeWidth="3"
+          barFill ? (
+            <button
+              type="button"
+              data-chat-context-bar="true"
+              className="group/context-bar flex w-full cursor-default items-center gap-2 rounded-sm text-left text-3xs text-muted-foreground tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              aria-label={`Context ${Math.round(barFill.share * 100)}% of ${barFill.limitIsCompact ? "compact limit" : "window"} used`}
+            >
+              <span className="h-1 min-w-0 flex-1 overflow-hidden rounded-full bg-muted/60">
+                <span
+                  className={cn(
+                    "block h-full rounded-full transition-[width,background-color] duration-500 ease-out motion-reduce:transition-none",
+                    barFill.tone === "danger"
+                      ? "bg-destructive"
+                      : barFill.tone === "warn"
+                        ? "bg-warning"
+                        : "bg-success",
+                  )}
+                  style={{ width: `${barFill.share * 100}%` }}
                 />
-                <circle
-                  cx="12"
-                  cy="12"
-                  r={radius}
-                  fill="none"
-                  stroke={usageColor}
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  strokeDasharray={circumference}
-                  strokeDashoffset={dashOffset}
-                  className="transition-[stroke-dashoffset,stroke] duration-500 ease-out motion-reduce:transition-none"
-                />
-              </svg>
-            </span>
-          </Button>
+              </span>
+              <span className="shrink-0">
+                {formatContextWindowTokens(usage.usedTokens)} /{" "}
+                {formatContextWindowTokens(barFill.limit)}
+                {barFill.limitIsCompact ? " compact" : ""} ({Math.round(barFill.share * 100)}%)
+              </span>
+            </button>
+          ) : (
+            <Button
+              size="icon-sm"
+              variant="ghost-muted"
+              className="size-7"
+              aria-label={
+                usage.maxTokens !== null && usedPercentage
+                  ? `Context window ${usedPercentage} used`
+                  : `Context window ${formatContextWindowTokens(usage.usedTokens)} tokens used`
+              }
+            >
+              <span className="relative flex size-5 items-center justify-center">
+                <svg
+                  viewBox="0 0 24 24"
+                  className="-rotate-90 absolute inset-0 size-full transform-gpu mx-0!"
+                  aria-hidden="true"
+                >
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r={radius}
+                    fill="none"
+                    className="stroke-muted-foreground/24"
+                    strokeWidth="3"
+                  />
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r={radius}
+                    fill="none"
+                    stroke={usageColor}
+                    strokeWidth="3"
+                    strokeLinecap="round"
+                    strokeDasharray={circumference}
+                    strokeDashoffset={dashOffset}
+                    className="transition-[stroke-dashoffset,stroke] duration-500 ease-out motion-reduce:transition-none"
+                  />
+                </svg>
+              </span>
+            </Button>
+          )
         }
       />
       <PopoverPopup

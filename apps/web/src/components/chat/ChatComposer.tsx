@@ -205,6 +205,7 @@ import { resolveComposerMenuActiveItemId } from "./composerMenuHighlight";
 import { buildPullRequestReferenceContext } from "../pullRequest/pullRequestDetail.logic";
 import { getComposerPromptInjectionState, getComposerReasoningStep } from "./composerProviderState";
 import { readPromptUltrathink } from "./TraitsPicker";
+import { ContextWindowMeter } from "./ContextWindowMeter";
 import {
   providerSupportsManualCompaction,
   resolveContextWindowModelDisplayName,
@@ -3280,6 +3281,21 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 </ComposerCommandMenuLayer>
               )}
 
+              {settings.contextWindowMeterEnabled && activeContextWindow ? (
+                <div className="-mt-1.5 mb-2 sm:-mt-2">
+                  <ContextWindowMeter
+                    variant="bar"
+                    usage={activeContextWindow}
+                    modelDisplayName={activeThreadModelDisplayName}
+                    compactDisabled={compactDisabled || noProviderAvailable || isSendBusy}
+                    compactDisabledReason={resolvedCompactDisabledReason}
+                    {...(compactCommandAvailable ? { onCompact: compactThreadContextStable } : {})}
+                  />
+                </div>
+              ) : reserveContextWindowMeter ? (
+                <div aria-hidden="true" className="-mt-1.5 mb-2 h-4 sm:-mt-2" />
+              ) : null}
+
               <div role="status" aria-atomic="true" className="sr-only">
                 {composerSuggestionsVisible && composerMenuItems.length === 0
                   ? isComposerMenuLoading
@@ -3449,10 +3465,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                   <ComposerFooterPrimaryActions
                     compact={isComposerPrimaryActionsCompact}
                     canOperateThread={canOperateThread}
-                    activeContextWindow={
-                      settings.contextWindowMeterEnabled ? activeContextWindow : null
-                    }
-                    reserveContextWindowMeter={reserveContextWindowMeter}
+                    activeContextWindow={null}
+                    reserveContextWindowMeter={false}
                     activeThreadModelDisplayName={activeThreadModelDisplayName}
                     pendingAction={pendingPrimaryAction}
                     isRunning={phase === "running"}

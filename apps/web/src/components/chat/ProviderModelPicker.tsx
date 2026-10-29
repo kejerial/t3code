@@ -112,6 +112,8 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     (activeEntry?.driverKind === "opencode" || activeEntry?.driverKind === "antigravity"
       ? undefined
       : selectedInstanceOptions[0]);
+  const showInstanceBadgeFor = (entry: typeof activeEntry) =>
+    entry !== null && entry !== undefined && shouldShowInstanceBadge(entry, props.instanceEntries);
   const triggerTitle = selectedModel
     ? getTriggerDisplayModelName(selectedModel, activeEntry?.driverKind)
     : props.model === ANTIGRAVITY_DEFAULT_MODEL
@@ -120,8 +122,15 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   const triggerLabel = selectedModel
     ? `${getDisplayModelName(selectedModel)}${selectedModel.isUnavailable ? " (Unavailable)" : ""}`
     : triggerTitle;
-  const showInstanceBadge =
-    activeEntry !== null && shouldShowInstanceBadge(activeEntry, props.instanceEntries);
+  // Name the account, not just the model: three Claude logins share one model list.
+  const accountEmail = activeEntry?.snapshot.auth.email?.trim() || null;
+  const accountLabel =
+    props.selectedModels !== undefined
+      ? null
+      : (accountEmail?.split("@")[0] ??
+          (showInstanceBadgeFor(activeEntry) ? activeEntry?.displayName : null)) ||
+        null;
+  const showInstanceBadge = showInstanceBadgeFor(activeEntry);
 
   const setIsMenuOpen = (open: boolean) => {
     props.onOpenChange?.(open);
@@ -169,9 +178,15 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
   const allModelNames = selectedEntries
     ? selectedEntries.map((selection) => selection.fullLabel).join(", ") || "Choose models"
     : undefined;
+  const triggerTooltipBase = [
+    props.triggerLabel ?? allModelNames ?? triggerLabel,
+    accountEmail ?? accountLabel,
+  ]
+    .filter(Boolean)
+    .join(" · ");
   const triggerTooltipContent = shortcutLabel
-    ? `${props.triggerLabel ?? allModelNames ?? triggerLabel} · ${shortcutLabel}`
-    : (props.triggerLabel ?? allModelNames ?? triggerLabel);
+    ? `${triggerTooltipBase} · ${shortcutLabel}`
+    : triggerTooltipBase;
 
   return (
     <Popover
@@ -262,6 +277,12 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
               }
             >
               {props.triggerLabel ?? multipleLabel ?? triggerTitle}
+              {accountLabel ? (
+                <span className="text-muted-foreground" data-chat-provider-model-picker-account>
+                  {" · "}
+                  {accountLabel}
+                </span>
+              ) : null}
             </TooltipTrigger>
             <TooltipPopup side="top">{triggerTooltipContent}</TooltipPopup>
           </Tooltip>

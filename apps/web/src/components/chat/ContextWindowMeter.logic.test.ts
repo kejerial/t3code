@@ -6,6 +6,7 @@ import {
   hasDismissedResumeCompaction,
   resolveContextWindowModelDisplayName,
   shouldReserveContextWindowMeter,
+  resolveContextBarFill,
 } from "./ContextWindowMeter.logic";
 
 function claudeProvider(input: {
@@ -155,5 +156,26 @@ describe("shouldReserveContextWindowMeter", () => {
         providerReportsContextWindow: null,
       }),
     ).toBe(true);
+  });
+});
+
+describe("resolveContextBarFill", () => {
+  it("fills against the auto-compact point when it is below the window", () => {
+    expect(
+      resolveContextBarFill({
+        usedTokens: 88_000,
+        maxTokens: 1_000_000,
+        autoCompactThreshold: 300_000,
+      }),
+    ).toMatchObject({ limit: 300_000, limitIsCompact: true, tone: "ok" });
+  });
+
+  it("turns amber at 60% and red at 85%", () => {
+    expect(resolveContextBarFill({ usedTokens: 60, maxTokens: 100 })?.tone).toBe("warn");
+    expect(resolveContextBarFill({ usedTokens: 85, maxTokens: 100 })?.tone).toBe("danger");
+  });
+
+  it("returns null without a limit, so the composer shows no bar", () => {
+    expect(resolveContextBarFill({ usedTokens: 5_000, maxTokens: null })).toBeNull();
   });
 });
