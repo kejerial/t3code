@@ -2,6 +2,7 @@ import { expect, it } from "@effect/vitest";
 import {
   CommandId,
   EnvironmentId,
+  EventId,
   MessageId,
   type OrchestrationV2Command,
   type OrchestrationV2Run,
@@ -29,7 +30,14 @@ import * as TestClock from "effect/testing/TestClock";
 
 import * as ServerSettings from "../serverSettings.ts";
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import { CodexProviderCapabilitiesV2 } from "./Adapters/CodexAdapterV2.ts";
 import * as CommandReceiptStore from "./CommandReceiptStore.ts";
+import * as EffectOutbox from "./EffectOutbox.ts";
+import * as EventSink from "./EventSink.ts";
+import * as EventStore from "./EventStore.ts";
+import * as ProjectionStore from "./ProjectionStore.ts";
+import * as ProviderAdapterRegistry from "./ProviderAdapterRegistry.ts";
+import * as ProviderReplayHarness from "./testkit/ProviderReplayHarness.ts";
 import * as Orchestrator from "./Orchestrator.ts";
 import * as ProviderSessionManager from "./ProviderSessionManager.ts";
 import * as ProviderAdapter from "@t3tools/provider-core/server/ProviderAdapter";
@@ -595,4 +603,135 @@ it.effect.each([
 
     expect(dispatched).toEqual(settles ? ["thread.settle"] : []);
   }),
+);
+
+it.effect(
+  "agents cannot list or message side chats, and the startup sweep deletes only older ones",
+  () => {
+    const instanceId = ProviderInstanceId.make("codex");
+    const modelSelection = { instanceId, model: "gpt-5.1-codex" };
+    const layerDatabase = SqlitePersistence.layerMemory;
+    const layerTest = ThreadManagementService.layer.pipe(
+      Layer.provideMerge(
+        Layer.mergeAll(
+          layerDatabase,
+          ProjectionStore.layer.pipe(Layer.provide(layerDatabase)),
+          EventStore.layer.pipe(Layer.provide(layerDatabase)),
+          EffectOutbox.layer.pipe(Layer.provide(layerDatabase)),
+          ProviderReplayHarness.layerWithRegistry(
+            { name: "thread-management-asides" },
+            ProviderAdapterRegistry.layerFromAdapters([
+              {
+                instanceId,
+                driver: ProviderDriverKind.make("codex"),
+                getCapabilities: () => Effect.succeed(CodexProviderCapabilitiesV2),
+                planSelectionTransition: () => Effect.succeed({ type: "apply_on_next_turn" }),
+                openSession: () => Effect.die("Side chats here never reach a provider"),
+              },
+            ]),
+            { databaseLayer: layerDatabase, runEffectWorker: false },
+          ),
+        ),
+      ),
+      Layer.provideMerge(ServerSettings.layerTest()),
+      Layer.provideMerge(CommandReceiptStore.layer.pipe(Layer.provide(layerDatabase))),
+    );
+    return Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const eventSink = yield* EventSink.EventSinkV2;
+      const threads = yield* ThreadManagementService.ThreadManagementService;
+      const now = yield* DateTime.now;
+      const sourceThreadId = ThreadId.make("thread:asides-source");
+      const sourceRunId = RunId.make("run:asides-source");
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        commandId: CommandId.make("command:asides-create"),
+        threadId: sourceThreadId,
+        projectId: ProjectId.make("project:asides"),
+        title: "Aside source",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+        createdBy: "user",
+        creationSource: "web",
+      });
+      yield* eventSink.write({
+        events: [
+          {
+            id: EventId.make("event:asides-source-run"),
+            type: "run.created",
+            threadId: sourceThreadId,
+            runId: sourceRunId,
+            occurredAt: now,
+            payload: {
+              id: sourceRunId,
+              threadId: sourceThreadId,
+              ordinal: 1,
+              providerInstanceId: instanceId,
+              modelSelection,
+              providerThreadId: null,
+              userMessageId: MessageId.make("message:asides-source"),
+              rootNodeId: null,
+              activeAttemptId: null,
+              status: "completed",
+              requestedAt: now,
+              startedAt: now,
+              completedAt: now,
+              checkpointId: null,
+              contextHandoffId: null,
+            },
+          },
+        ],
+      });
+      const openAside = (targetThreadId: ThreadId) =>
+        orchestrator.dispatch({
+          type: "thread.fork",
+          commandId: CommandId.make(`command:asides-fork:${targetThreadId}`),
+          sourceThreadId,
+          targetThreadId,
+          sourcePoint: { type: "run", runId: sourceRunId },
+          kind: "aside",
+          createdBy: "user",
+          creationSource: "web",
+        });
+      const staleAside = ThreadId.make("thread:asides-stale");
+      const freshAside = ThreadId.make("thread:asides-fresh");
+      yield* openAside(staleAside);
+      yield* TestClock.adjust("1 second");
+      const startedAt = yield* DateTime.now;
+      yield* TestClock.adjust("1 second");
+      yield* openAside(freshAside);
+
+      const listed = yield* threads.listProjectThreads({ includeSubagents: true });
+      expect(listed.map((thread) => thread.id)).toEqual([sourceThreadId]);
+      const refused = yield* threads
+        .sendToThread({
+          projectId: ProjectId.make("project:asides"),
+          commandId: CommandId.make("command:asides-agent-send"),
+          threadId: freshAside,
+          messageId: MessageId.make("message:asides-agent-send"),
+          text: "Hello from another agent",
+          attachments: [],
+          mode: "auto",
+          createdBy: "agent",
+          creationSource: "mcp",
+        })
+        .pipe(Effect.flip);
+      expect(refused).toBeInstanceOf(ThreadManagementService.ThreadManagementThreadNotFoundError);
+
+      const liveIds = threads
+        .getShellSnapshot()
+        .pipe(Effect.map(({ threads }) => threads.map((thread) => thread.id).toSorted()));
+      expect(yield* liveIds).toEqual([freshAside, staleAside, sourceThreadId].toSorted());
+      yield* threads.deleteAsideThreads({ createdBefore: startedAt });
+      const afterSweep = yield* liveIds;
+      expect(afterSweep).toEqual([freshAside, sourceThreadId].toSorted());
+      const sequence = yield* orchestrator.getThreadEventSequence(staleAside);
+      yield* threads.deleteAsideThreads({ createdBefore: startedAt });
+      expect(yield* liveIds).toEqual(afterSweep);
+      expect(yield* orchestrator.getThreadEventSequence(staleAside)).toEqual(sequence);
+    }).pipe(Effect.provide(layerTest));
+  },
 );
