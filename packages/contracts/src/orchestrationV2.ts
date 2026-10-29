@@ -433,6 +433,9 @@ const LenientThreadOpens = Schema.NullOr(OrchestrationV2ThreadOpens).pipe(
   Schema.catchDecoding(() => Effect.succeedSome(null)),
 );
 
+export const OrchestrationV2ThreadKind = Schema.Literal("aside");
+export type OrchestrationV2ThreadKind = typeof OrchestrationV2ThreadKind.Type;
+
 export const OrchestrationV2AppThread = Schema.Struct({
   ...OrchestrationV2CreationFields,
   id: ThreadId,
@@ -453,6 +456,8 @@ export const OrchestrationV2AppThread = Schema.Struct({
   delegatedFrom: Schema.optional(OrchestrationV2DelegatedFrom),
   /** The thread in this environment whose agent launched this one as a top-level thread. */
   launchedByThreadId: Schema.optional(ThreadId),
+  /** "aside" marks a throwaway side-chat fork that thread lists, search, and MCP hide. */
+  kind: Schema.optional(OrchestrationV2ThreadKind),
   lineage: OrchestrationV2AppThreadLineage,
   forkedFrom: Schema.NullOr(
     Schema.Union([
@@ -2043,6 +2048,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   linkOrigin: Schema.optional(OrchestrationV2LinkOrigin),
   delegatedFrom: Schema.optional(OrchestrationV2DelegatedFrom),
   launchedByThreadId: Schema.optional(ThreadId),
+  kind: Schema.optional(OrchestrationV2ThreadKind),
   latestRunId: Schema.NullOr(RunId),
   latestRunRequestedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
   latestRunStartedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),
@@ -3246,6 +3252,7 @@ export const OrchestrationV2Command = Schema.Union([
     targetThreadId: ThreadId,
     sourcePoint: OrchestrationV2ThreadForkSourcePoint,
     title: Schema.optional(TrimmedNonEmptyString),
+    kind: Schema.optional(OrchestrationV2ThreadKind),
     createdAt: Schema.optional(Schema.DateTimeUtc),
   }),
   Schema.Struct({

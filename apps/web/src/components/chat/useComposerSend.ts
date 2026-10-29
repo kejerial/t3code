@@ -54,8 +54,10 @@ import {
 import {
   type ComposerSubmissionIntent,
   collapseExpandedComposerCursor,
+  parseSideChatComposerCommand,
   parseStandaloneComposerSlashCommand,
 } from "../../composer-logic";
+import { SIDE_CHAT_UNAVAILABLE_REASON, openSideChat } from "../../lib/sideChat";
 import { resolvePlanFollowUpSubmission } from "../../proposedPlan";
 import { type ChatMessage } from "../../types";
 import { stackedThreadToast, toastManager } from "../ui/toast";
@@ -728,6 +730,22 @@ export function useComposerSend(input: ComposerSendInput) {
       ) {
         handleNewThreadInActiveProject();
       }
+      return;
+    }
+    const sideChatCommand = parseSideChatComposerCommand(trimmed);
+    if (sideChatCommand) {
+      if (!isServerThread || !activeThread || activeThread.kind === "aside") {
+        toastManager.add(
+          stackedThreadToast({ type: "warning", title: SIDE_CHAT_UNAVAILABLE_REASON }),
+        );
+        return;
+      }
+      promptRef.current = "";
+      clearComposerDraftContent(composerDraftTarget);
+      composerRef.current?.resetCursorState();
+      void openSideChat(scopeThreadRef(activeThread.environmentId, activeThread.id), {
+        question: sideChatCommand.question,
+      });
       return;
     }
     const standaloneSlashCommand =

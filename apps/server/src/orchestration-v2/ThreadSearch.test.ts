@@ -65,6 +65,7 @@ const thread = (
     readonly archivedAt?: DateTime.Utc;
     readonly deletedAt?: DateTime.Utc;
     readonly subagentOf?: ThreadId;
+    readonly aside?: boolean;
     readonly title?: string;
     readonly settledAt?: DateTime.Utc;
     readonly linkedPullRequest?: ThreadLinkedPullRequest;
@@ -99,6 +100,7 @@ const thread = (
         }
       : { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
     forkedFrom: null,
+    ...(overrides.aside ? { kind: "aside" as const } : {}),
     createdAt: at(0),
     updatedAt: at(0),
     archivedAt: overrides.archivedAt ?? null,
@@ -198,6 +200,8 @@ it.layer(layerTest)("ThreadSearch", (it) => {
         message(ThreadId.make("thread:archived"), "archived", "user", "needle archived"),
         thread(ThreadId.make("thread:deleted"), project, { deletedAt: at(1) }),
         message(ThreadId.make("thread:deleted"), "deleted", "user", "needle deleted"),
+        thread(ThreadId.make("thread:aside"), project, { aside: true }),
+        message(ThreadId.make("thread:aside"), "aside", "user", "needle side chat"),
         thread(ThreadId.make("thread:orphaned"), deletedProject),
         message(ThreadId.make("thread:orphaned"), "orphaned", "user", "needle orphaned"),
       ];

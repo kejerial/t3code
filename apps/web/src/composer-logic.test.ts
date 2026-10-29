@@ -22,6 +22,7 @@ import {
   extendReplacementRangeForTrailingSpace,
   formatAssistantCitationForComposer,
   isPathSuggestionCurrent,
+  parseSideChatComposerCommand,
   replaceTextRange,
 } from "./composer-logic";
 import { carryDisplacedCustomAnswerIntoPrompt } from "./pendingUserInput";
@@ -546,5 +547,16 @@ describe("extendReplacementRangeForTrailingSpace", () => {
     expect(extendReplacementRangeForTrailingSpace("@firest", 3, "@file ")).toBe(3);
     expect(extendReplacementRangeForTrailingSpace("@fi rest", 3, "@file")).toBe(3);
     expect(extendReplacementRangeForTrailingSpace("@fi", 3, "@file ")).toBe(3);
+  });
+});
+
+describe("parseSideChatComposerCommand", () => {
+  it("takes the question after /btw and ignores other commands", () => {
+    expect(parseSideChatComposerCommand("/btw  why does this fail? ")).toEqual({
+      question: "why does this fail?",
+    });
+    expect(parseSideChatComposerCommand("/BTW")).toEqual({ question: "" });
+    expect(parseSideChatComposerCommand("/btwx")).toBeNull();
+    expect(parseSideChatComposerCommand("tell me /btw")).toBeNull();
   });
 });

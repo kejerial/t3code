@@ -242,3 +242,15 @@ it.effect("rejects in-progress and rolled-back fork sources", () =>
     }
   }),
 );
+
+it.effect("an ordinary fork of a side chat is not a side chat", () =>
+  Effect.gen(function* () {
+    const sourceRun = makeSourceRun("completed");
+    const sourceProjection = makeSourceProjection(sourceRun);
+    const result = yield* planFork(sourceRun, {
+      ...sourceProjection,
+      thread: { ...sourceProjection.thread, kind: "aside" },
+    });
+    assert.notProperty(result.targetThread, "kind");
+  }),
+);

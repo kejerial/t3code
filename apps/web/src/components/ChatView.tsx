@@ -111,7 +111,7 @@ import { resolveTerminalSessionLabel } from "@t3tools/shared/terminalLabels";
 import { useAtomValue } from "@effect/atom-react";
 import { type SetStateAction, use, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { BackgroundThreadContext, SplitPaneContext } from "./chat/backgroundThread";
-import { XIcon } from "lucide-react";
+import { MessageSquareQuoteIcon, XIcon } from "lucide-react";
 import { Button } from "./ui/button";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { assistantCitationFromLocation } from "../lib/assistantCitationNavigation";
@@ -129,7 +129,7 @@ import { AsyncResult } from "effect/reactivity";
 import { isElectron } from "../env";
 import { useDiffPanelStore } from "../diffPanelStore";
 import { useActiveThreadRef } from "../hooks/useActiveThreadRef";
-import { composerRequiresModifier } from "../composer-logic";
+import { composerRequiresModifier, formatAssistantCitationForComposer } from "../composer-logic";
 import {
   derivePhase,
   deriveActiveWorkStartedAt,
@@ -145,6 +145,7 @@ import { DEFAULT_INTERACTION_MODE, type ChatMessage } from "../types";
 import { buildThreadRouteParams } from "../threadRoutes";
 import { useTheme } from "../hooks/useTheme";
 import { copyThreadReference } from "../lib/copyThreadReference";
+import { openSideChat, sideChatUnavailableReason } from "../lib/sideChat";
 import { subscribeSnapShotComposerFocus } from "../lib/desktopSnapShot";
 import { useMediaQuery } from "../hooks/useMediaQuery";
 import { FileMetadataThreadProvider } from "../hooks/FileMetadataThreadProvider";
@@ -949,6 +950,14 @@ export default function ChatView(props: ChatViewProps) {
   })();
   const activeThreadRef = useActiveThreadRef(activeThread);
   const activeThreadKey = activeThreadRef ? scopedThreadKey(activeThreadRef) : null;
+  const sideChatReason = sideChatUnavailableReason(serverProjection?.runs ?? []);
+  const addAssistantTextToSideChat = (citation: AssistantCitation) => {
+    if (!activeThreadRef) return;
+    void openSideChat(activeThreadRef, {
+      draft: formatAssistantCitationForComposer(citation, citation.comment),
+    });
+  };
+  const addAssistantTextToSideChatStable = useStableCallback(addAssistantTextToSideChat);
   const activeEnvironmentServerBrowser = useEnvironmentSupportsServerBrowser(
     activeThreadRef?.environmentId ?? null,
   );
@@ -2079,7 +2088,8 @@ export default function ChatView(props: ChatViewProps) {
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- schedules a frame to focus the composer DOM element when a thread opens, or its split pane takes focus, with the terminal closed
   useEffect(() => {
-    if (!activeThread?.id || terminalUiState.terminalOpen || isBackgroundThread()) return;
+    if (!activeThread?.id || terminalUiState.terminalOpen) return;
+    if (isBackgroundThread() && !splitPane.aside) return;
     if (!splitPane.takeFocus) return;
     const frame = window.requestAnimationFrame(() => {
       focusComposerStable();
@@ -2091,6 +2101,7 @@ export default function ChatView(props: ChatViewProps) {
     activeThread?.id,
     focusComposerStable,
     isBackgroundThread,
+    splitPane.aside,
     splitPane.takeFocus,
     terminalUiState.terminalOpen,
   ]);
@@ -2613,6 +2624,10 @@ export default function ChatView(props: ChatViewProps) {
         if (!isServerThread || serverConfig?.threadFind !== true || activeThreadKey === null)
           return false;
         openThreadFind(activeThreadKey);
+      },
+      "chat.aside": ({ event }) => {
+        if (!activeThreadRef || !isServerThread || splitPane.aside) return false;
+        if (!event.repeat) void openSideChat(activeThreadRef);
       },
       "composer.cycleHost": ({ event }) => {
         if (!canChangeEnvironment) return false;
@@ -3183,12 +3198,25 @@ export default function ChatView(props: ChatViewProps) {
           ) : null}
           {!rightPanelControlsAtRoot && !rightPanelControlsInPanel ? panelLayoutControls : null}
           {inlineRightPanelOwnsTitleBar ? threadPanelHeaderControl : null}
+          {activeThreadRef && isServerThread && !splitPane.aside && canOperateThread ? (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label="Open side chat"
+              title={sideChatReason ?? "Open side chat"}
+              disabled={sideChatReason !== null}
+              className="me-1 shrink-0 [-webkit-app-region:no-drag]"
+              onClick={() => void openSideChat(activeThreadRef)}
+            >
+              <MessageSquareQuoteIcon />
+            </Button>
+          ) : null}
           {splitPane.onClose ? (
             <Button
               variant="ghost"
               size="icon-xs"
-              aria-label="Close pane"
-              title="Close pane"
+              aria-label={splitPane.aside ? "Close side chat" : "Close pane"}
+              title={splitPane.aside ? "Close side chat" : "Close pane"}
               data-split-pane-close
               className="me-1.5 shrink-0 [-webkit-app-region:no-drag]"
               onClick={splitPane.onClose}
@@ -3270,6 +3298,15 @@ export default function ChatView(props: ChatViewProps) {
                 citationRequest={citationRequest}
                 citationHistory={citationHistory}
                 onCiteAssistantText={citeAssistantTextStable}
+                onAddAssistantTextToSideChat={
+                  activeThreadRef &&
+                  isServerThread &&
+                  !splitPane.aside &&
+                  canOperateThread &&
+                  sideChatReason === null
+                    ? addAssistantTextToSideChatStable
+                    : undefined
+                }
                 {...(activeProject ? { onRunShellCommand: runShellCommandStable } : {})}
                 isWorking={isWorking}
                 runlessWorkActive={runlessWorkStartedAt !== null}

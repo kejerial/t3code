@@ -17,6 +17,8 @@ export const SPLIT_VIEW_MAX_PANES = 3;
 export interface SplitViewPane {
   readonly id: string;
   readonly thread: ScopedThreadRef;
+  /** Set on a side chat pane: the thread it was asked beside. It is never focused or routed. */
+  readonly asideOf?: ScopedThreadRef;
 }
 
 export interface SplitViewLayout {
@@ -29,6 +31,8 @@ export const EMPTY_SPLIT_VIEW_LAYOUT: SplitViewLayout = { panes: [], sizes: [], 
 
 const newPane = (thread: ScopedThreadRef): SplitViewPane => ({ id: randomUUID(), thread });
 
+export const isAsidePane = (pane: SplitViewPane) => pane.asideOf !== undefined;
+
 const threadIndex = (layout: SplitViewLayout, thread: ScopedThreadRef) => {
   const key = scopedThreadKey(thread);
   return layout.panes.findIndex((pane) => scopedThreadKey(pane.thread) === key);
@@ -37,35 +41,62 @@ const threadIndex = (layout: SplitViewLayout, thread: ScopedThreadRef) => {
 const withThread = (layout: SplitViewLayout, index: number, thread: ScopedThreadRef) =>
   layout.panes.map((pane, at) => (at === index ? { id: pane.id, thread } : pane));
 
+/** Drops side chats whose thread left the split, with their widths going to the pane before. */
+function withoutOrphanAsides(layout: SplitViewLayout): SplitViewLayout {
+  const shown = new Set(
+    layout.panes.filter((pane) => !isAsidePane(pane)).map((pane) => scopedThreadKey(pane.thread)),
+  );
+  const orphan = (pane: SplitViewPane) =>
+    pane.asideOf !== undefined && !shown.has(scopedThreadKey(pane.asideOf));
+  if (!layout.panes.some(orphan)) return layout;
+  const sizes = [...layout.sizes];
+  const panes: SplitViewPane[] = [];
+  layout.panes.forEach((pane, index) => {
+    if (!orphan(pane)) {
+      panes.push(pane);
+      return;
+    }
+    const neighbour = index > 0 ? index - 1 : index + 1;
+    sizes[neighbour] = (sizes[neighbour] ?? 0) + (sizes[index] ?? 0);
+  });
+  return {
+    panes,
+    sizes: sizes.filter((_, index) => !orphan(layout.panes[index]!)),
+    focusedId: layout.focusedId,
+  };
+}
+
 /** The pane id a lone chat starts with, so deriving the layout in render never remounts it. */
 export const PRIMARY_SPLIT_PANE_ID = "primary";
 
-/** The layout with the routed thread focused: its own pane, or the focused pane it replaces. */
+/**
+ * The layout with the routed thread focused: its own pane, or the focused pane it replaces. A
+ * side chat pane is never that pane, and one whose thread left the split goes with it.
+ */
 export function reconcileSplitViewLayout(
   layout: SplitViewLayout,
   route: ScopedThreadRef,
 ): SplitViewLayout {
   const shown = threadIndex(layout, route);
-  if (shown !== -1) {
+  if (shown !== -1 && !isAsidePane(layout.panes[shown]!)) {
     const id = layout.panes[shown]!.id;
     return layout.focusedId === id ? layout : { ...layout, focusedId: id };
   }
-  if (layout.panes.length === 0) {
+  const regular = layout.panes.filter((pane) => !isAsidePane(pane));
+  if (regular.length === 0) {
     return {
       panes: [{ id: PRIMARY_SPLIT_PANE_ID, thread: route }],
       sizes: [1],
       focusedId: PRIMARY_SPLIT_PANE_ID,
     };
   }
-  const focused = Math.max(
-    layout.panes.findIndex((pane) => pane.id === layout.focusedId),
-    0,
-  );
-  return {
+  const focusedPane = regular.find((pane) => pane.id === layout.focusedId) ?? regular[0]!;
+  const focused = layout.panes.indexOf(focusedPane);
+  return withoutOrphanAsides({
     ...layout,
     panes: withThread(layout, focused, route),
-    focusedId: layout.panes[focused]!.id,
-  };
+    focusedId: focusedPane.id,
+  });
 }
 
 /**
@@ -98,7 +129,55 @@ export function openSplitViewPane(
   };
 }
 
-/** Closes a pane; its width goes to a neighbour, and focus moves there if it was focused. */
+/** The share of its thread's pane a new side chat takes. */
+const ASIDE_PANE_SHARE = 0.4;
+
+/**
+ * Opens `aside` as the side chat of `parent`, right of the parent's pane. The split keeps one
+ * side chat at a time: an existing one hands its pane over, so its chat stays mounted.
+ */
+export function openAsideSplitViewPane(
+  layout: SplitViewLayout,
+  aside: ScopedThreadRef,
+  parent: ScopedThreadRef,
+): SplitViewLayout {
+  const current = layout.panes.findIndex(isAsidePane);
+  if (current !== -1) {
+    return {
+      ...layout,
+      panes: layout.panes.map((pane, index) =>
+        index === current ? { id: pane.id, thread: aside, asideOf: parent } : pane,
+      ),
+    };
+  }
+  const pane = { ...newPane(aside), asideOf: parent };
+  const target = threadIndex(layout, parent);
+  if (target === -1) {
+    return {
+      panes: [{ id: PRIMARY_SPLIT_PANE_ID, thread: parent }, pane],
+      sizes: [1 - ASIDE_PANE_SHARE, ASIDE_PANE_SHARE],
+      focusedId: PRIMARY_SPLIT_PANE_ID,
+    };
+  }
+  const parentSize = layout.sizes[target] ?? 1 / layout.panes.length;
+  const sizes = layout.sizes.map((size, index) =>
+    index === target ? parentSize * (1 - ASIDE_PANE_SHARE) : size,
+  );
+  return {
+    ...layout,
+    panes: [...layout.panes.slice(0, target + 1), pane, ...layout.panes.slice(target + 1)],
+    sizes: [
+      ...sizes.slice(0, target + 1),
+      parentSize * ASIDE_PANE_SHARE,
+      ...sizes.slice(target + 1),
+    ],
+  };
+}
+
+/**
+ * Closes a pane; its width goes to a neighbour, and focus moves to the nearest pane that can
+ * hold it if it was focused. Side chats of a closed pane close with it.
+ */
 export function closeSplitViewPane(
   layout: SplitViewLayout,
   id: string,
@@ -109,13 +188,19 @@ export function closeSplitViewPane(
   const sizes = layout.sizes.map((size, index) =>
     index === neighbour ? size + (layout.sizes[closed] ?? 0) : size,
   );
-  const focus = layout.focusedId === id ? layout.panes[neighbour]! : null;
+  const focus =
+    layout.focusedId === id
+      ? (layout.panes
+          .map((pane, index) => ({ pane, distance: Math.abs(index - closed) }))
+          .filter(({ pane }) => pane.id !== id && !isAsidePane(pane))
+          .toSorted((a, b) => a.distance - b.distance)[0]?.pane ?? null)
+      : null;
   return {
-    layout: {
+    layout: withoutOrphanAsides({
       panes: layout.panes.filter((_, index) => index !== closed),
       sizes: sizes.filter((_, index) => index !== closed),
       focusedId: focus === null ? layout.focusedId : focus.id,
-    },
+    }),
     focus: focus?.thread ?? null,
   };
 }
@@ -139,7 +224,13 @@ export function resizeSplitViewPanes(
   };
 }
 
-const isPane = Schema.is(Schema.Struct({ id: Schema.String, thread: ScopedThreadRef }));
+const isPane = Schema.is(
+  Schema.Struct({
+    id: Schema.String,
+    thread: ScopedThreadRef,
+    asideOf: Schema.optional(ScopedThreadRef),
+  }),
+);
 
 function decodeLayout(value: unknown): SplitViewLayout {
   const layout = value as Partial<SplitViewLayout> | null;

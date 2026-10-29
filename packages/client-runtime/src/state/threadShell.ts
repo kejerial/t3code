@@ -10,6 +10,7 @@ import { isProviderNativeSubagentThread, OrchestrationV2ThreadShell } from "@t3t
 import * as Schema from "effect/Schema";
 import { Atom } from "effect/reactivity";
 
+import { isAsideThread } from "./asideThread.ts";
 import type { EnvironmentThreadShell, PendingSubagentRequest } from "./models.ts";
 import { presentThreadShell, threadRuntimeIsActive } from "./models.ts";
 import { type EnvironmentCatalogState, enabledEnvironmentIds } from "./connections.ts";
@@ -199,16 +200,19 @@ export function createEnvironmentThreadShellAtoms(input: {
     return value;
   };
 
+  // Side chats stay out of every list; only point reads by ref (their own pane) see them.
   const environmentThreadsAtom = Atom.family((environmentId: EnvironmentId) =>
-    Atom.make(
-      (get): ReadonlyArray<OrchestrationV2ThreadShell> =>
-        get(input.snapshotAtom(environmentId))?.threads ?? EMPTY_THREADS,
-    ).pipe(Atom.withLabel(`environment-threads:${environmentId}`)),
+    Atom.make((get): ReadonlyArray<OrchestrationV2ThreadShell> => {
+      const threads = get(input.snapshotAtom(environmentId))?.threads ?? EMPTY_THREADS;
+      return threads.some(isAsideThread)
+        ? threads.filter((thread) => !isAsideThread(thread))
+        : threads;
+    }).pipe(Atom.withLabel(`environment-threads:${environmentId}`)),
   );
 
   const environmentThreadIndexAtom = Atom.family((environmentId: EnvironmentId) =>
     Atom.make((get): ReadonlyMap<ThreadId, OrchestrationV2ThreadShell> => {
-      const threads = get(environmentThreadsAtom(environmentId));
+      const threads = get(input.snapshotAtom(environmentId))?.threads ?? EMPTY_THREADS;
       if (threads.length === 0) {
         return EMPTY_THREAD_INDEX;
       }

@@ -1,4 +1,4 @@
-import type { ThreadId } from "@t3tools/contracts";
+import type { RunId, ThreadId } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
@@ -7,8 +7,15 @@ import {
   WS_METHODS,
   type EnvironmentId,
   type OrchestrationV2ShellSnapshot,
+  type OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
 
+import {
+  ASIDE_INTERACTION_MODE,
+  ASIDE_RUNTIME_MODE,
+  ASIDE_THREAD_TITLE,
+  findAsideThreads,
+} from "./asideThread.ts";
 import { createOptimisticThreadLifecycle } from "./threadLifecycle.ts";
 import * as DateTime from "effect/DateTime";
 
@@ -67,6 +74,13 @@ export type LoadEarlierThreadHistoryInput = {
   readonly workAnchorId?: string;
 };
 
+export interface OpenAsideThreadInput {
+  readonly sourceThreadId: ThreadId;
+  readonly targetThreadId: ThreadId;
+  /** A completed run of the source thread; see `selectAsideSourceRun`. */
+  readonly runId: RunId;
+}
+
 export function createThreadEnvironmentAtoms<R, E>(
   runtime: Atom.AtomRuntime<EnvironmentRegistry | Crypto.Crypto | R, E>,
   snapshotAtom: (environmentId: EnvironmentId) => Atom.Atom<OrchestrationV2ShellSnapshot | null>,
@@ -115,6 +129,34 @@ export function createThreadEnvironmentAtoms<R, E>(
         }),
       ),
     );
+  });
+
+  // Deletes the parent's earlier side chat first, so at most one is live per parent. The fork
+  // copies the parent's modes; plan mode keeps the side chat read-only where providers support
+  // it, and approval-required makes the rest ask before writing.
+  const openAside = Effect.fn("ThreadCommands.openAside")(function* (
+    input: OpenAsideThreadInput,
+    threads: ReadonlyArray<OrchestrationV2ThreadShell>,
+  ) {
+    for (const stale of findAsideThreads(threads, input.sourceThreadId)) {
+      yield* deleteThread({ threadId: stale.id });
+    }
+    yield* forkThreadFromRun({
+      sourceThreadId: input.sourceThreadId,
+      targetThreadId: input.targetThreadId,
+      runId: input.runId,
+      title: ASIDE_THREAD_TITLE,
+      kind: "aside",
+    });
+    yield* setThreadInteractionMode({
+      threadId: input.targetThreadId,
+      interactionMode: ASIDE_INTERACTION_MODE,
+    });
+    yield* setThreadRuntimeMode({
+      threadId: input.targetThreadId,
+      runtimeMode: ASIDE_RUNTIME_MODE,
+    });
+    return { threadId: input.targetThreadId };
   });
 
   const commands = {
@@ -301,6 +343,16 @@ export function createThreadEnvironmentAtoms<R, E>(
     forkFromRun: createEnvironmentCommand(runtime, {
       label: "environment-data:commands:thread:fork-from-run",
       execute: forkThreadFromRun,
+      scheduler,
+      concurrency: {
+        mode: "serial",
+        key: ({ environmentId, input }) => JSON.stringify([environmentId, input.sourceThreadId]),
+      },
+    }),
+    openAside: createEnvironmentCommand(runtime, {
+      label: "environment-data:commands:thread:open-aside",
+      execute: (input: OpenAsideThreadInput, registry, environmentId) =>
+        openAside(input, registry.get(snapshotAtom(environmentId))?.threads ?? []),
       scheduler,
       concurrency: {
         mode: "serial",
