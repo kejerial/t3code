@@ -133,7 +133,7 @@ function ExpandedAccount({
                 {remainingPercent(window)}%
               </span>
               <span className="ms-auto shrink-0 text-sidebar-muted-foreground">
-                {formatResetsIn(window, now) ?? ""}
+                {formatResetsIn(window, now)?.replace("resets in ", "") ?? ""}
               </span>
             </span>
             <UsageBar driver={account.driver} window={window} />

@@ -43,6 +43,13 @@ const windows = (session: number, weekly: number) => [
     usedPercent: weekly,
     resetsAt: "2026-10-30T20:30:00.000Z",
   },
+  {
+    id: "seven_day_fable",
+    kind: "weekly" as const,
+    label: "Weekly · Fable",
+    usedPercent: weekly,
+    resetsAt: "2026-10-30T20:30:00.000Z",
+  },
 ];
 
 const hub: UsageLimitSourceSnapshot = {
@@ -116,6 +123,9 @@ describe("SidebarUsageLimits", () => {
     expect(accountRows[0]).toContain("Claudealpha@example.com");
     expect(accountRows[0]).toContain("5-hour88%");
     expect(accountRows[0]).toContain("Weekly60%");
+    expect(accountRows[0]).toContain("2d 0h");
+    expect(accountRows[0]).not.toContain("resets in");
+    expect(accountRows[0]).not.toContain("Fable");
     expect(accountRows[1]).toContain("Claudebeta@example.com");
     expect(screen.container.textContent).not.toContain("gone");
     expect(

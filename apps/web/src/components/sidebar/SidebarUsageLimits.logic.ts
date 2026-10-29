@@ -45,9 +45,12 @@ export function sidebarUsageAccounts(
 ): readonly SidebarUsageAccount[] {
   return accounts
     .flatMap((account): SidebarUsageAccount[] => {
-      const windows = account.limits.windows.toSorted(
-        (left, right) => (WINDOW_ORDER[left.kind] ?? 3) - (WINDOW_ORDER[right.kind] ?? 3),
-      );
+      // Model-scoped limits ("Weekly · Fable") repeat the account's weekly bar; keep the main ones.
+      const windows = account.limits.windows
+        .filter((window) => !window.label.includes(" · "))
+        .toSorted(
+          (left, right) => (WINDOW_ORDER[left.kind] ?? 3) - (WINDOW_ORDER[right.kind] ?? 3),
+        );
       const primary = windows.find((window) => window.kind === "weekly") ?? windows[0];
       if (!primary) return [];
       const email = account.email?.trim();
