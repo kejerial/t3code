@@ -33,6 +33,7 @@ import {
   AlarmClockOffIcon,
   ArrowRightLeftIcon,
   CheckIcon,
+  ChevronRightIcon,
   CircleAlertIcon,
   CircleCheckIcon,
   CircleDashedIcon,
@@ -481,6 +482,12 @@ export function SortableThreadRow(
   // Keyed by variant so a card/slim switch remounts the row.
   return <SidebarThreadRow key={rowProps.variant} {...rowProps} thread={thread} sortable={bag} />;
 }
+// Child rows sit outside the sortable list: they move with their parent row.
+export function ChildThreadRow(props: Omit<SidebarThreadRowProps, "sortable">) {
+  const thread =
+    useThreadShell(scopeThreadRef(props.thread.environmentId, props.thread.id)) ?? props.thread;
+  return <SidebarThreadRow {...props} thread={thread} />;
+}
 export type SidebarSweepAction = "settle" | "unsettle" | "unsnooze";
 const dropVerbBadge: Record<SidebarDropVerb, ReactNode> = {
   pin: (
@@ -534,8 +541,17 @@ function TopStatusIcon(props: { icon: keyof typeof TOP_STATUS_ICONS; className: 
 type SidebarThreadRowProps = {
   thread: SidebarThreadSummary;
   // "folder" is a one-line row inside a boring sidebar project folder;
-  // "folder-multiline" adds the card's branch and PR line under it.
-  variant: "card" | "slim" | "folder" | "folder-multiline";
+  // "folder-multiline" adds the card's branch and PR line under it;
+  // "child" is a folder-style row for a subagent under its parent's row.
+  variant: "card" | "slim" | "folder" | "folder-multiline" | "child";
+  /** Child rows: indentation steps, already capped. */
+  depth?: number | undefined;
+  /** Child rows: whether the root row sits in a project folder. */
+  childInFolder?: boolean | undefined;
+  /** Threads listed under this row; 0 hides the toggle. */
+  childCount?: number | undefined;
+  childrenExpanded?: boolean | undefined;
+  onToggleChildren?: ((threadRef: ScopedThreadRef) => void) | undefined;
   navigationParent?: string | undefined;
   variantAction: SidebarSweepAction;
   settlementSupported: boolean;
@@ -1189,9 +1205,39 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     </span>
   ) : null;
 
+  const childCount = props.childCount ?? 0;
+  const childToggle =
+    childCount > 0 && props.onToggleChildren ? (
+      <button
+        type="button"
+        aria-expanded={props.childrenExpanded ?? false}
+        aria-label={`${props.childrenExpanded ? "Hide" : "Show"} ${childCount} child ${
+          childCount === 1 ? "thread" : "threads"
+        }`}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          props.onToggleChildren?.(threadRef);
+        }}
+        onDoubleClick={(event) => event.stopPropagation()}
+        onPointerDown={(event) => event.stopPropagation()}
+        className="inline-flex h-5 shrink-0 cursor-pointer items-center gap-0.5 rounded-sm pe-1 ps-0.5 text-xs tabular-nums text-muted-foreground outline-none hover:bg-sidebar-row-hover hover:text-foreground focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+      >
+        <ChevronRightIcon
+          aria-hidden
+          className={cn(
+            "size-3.5 transition-transform motion-reduce:transition-none",
+            props.childrenExpanded && "rotate-90",
+          )}
+        />
+        {childCount}
+      </button>
+    ) : null;
+
   if (variant !== "card") {
     const multiline = variant === "folder-multiline";
-    const inFolder = variant === "folder" || multiline;
+    const isChild = variant === "child";
+    const inFolder = variant === "folder" || multiline || isChild;
     return (
       <li
         data-thread-item={threadKey}
@@ -1214,7 +1260,13 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 data-sidebar-parent={props.navigationParent}
                 aria-label={accessibility.label}
                 aria-current={accessibility.current}
-                data-testid={inFolder ? "sidebar-row-folder" : "sidebar-row-slim"}
+                data-testid={
+                  isChild
+                    ? "sidebar-row-child"
+                    : inFolder
+                      ? "sidebar-row-folder"
+                      : "sidebar-row-slim"
+                }
                 aria-busy={isRegeneratingTitle || undefined}
                 className={cn(
                   rowSurfaceClassName,
@@ -1222,8 +1274,17 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                     ? "flex flex-col justify-center px-2.5 py-1.5"
                     : "flex h-9 items-center gap-2.5 px-2.5",
                   // Lines titles up with the folder name, past its chevron and icon.
-                  inFolder && "ps-9",
+                  inFolder && !isChild && "ps-9",
                 )}
+                style={
+                  isChild
+                    ? {
+                        paddingInlineStart: `calc(${props.childInFolder ? "2.25rem" : "0.625rem"} + ${
+                          props.depth ?? 1
+                        } * 0.875rem)`,
+                      }
+                    : undefined
+                }
                 onClick={handleClick}
                 onDoubleClick={handleDoubleClick}
                 onKeyDown={handleKeyDown}
@@ -1249,6 +1310,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
               )}
               {draftIndicator}
               {title}
+              {childToggle}
               {multiline ? titleLineProviderStack : null}
               {pinIndicator}
               {multiline ? null : terminalStatusIcon}
@@ -1564,6 +1626,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
             </div>
             <div className="mt-1 flex min-w-0 items-center gap-1.5">
               {title}
+              {childToggle}
               {isRegeneratingTitle ? (
                 <span role="status" className="sr-only">
                   Regenerating title

@@ -1,5 +1,5 @@
 import { resolveThreadWorkingStartedAt } from "@t3tools/client-runtime/state/models";
-import { isShownUnderParent } from "@t3tools/client-runtime/state/threads";
+import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { backgroundWorkHoldsCompletion } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
 import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
 import * as React from "react";
@@ -15,6 +15,7 @@ import {
 } from "@t3tools/client-runtime/state/thread-search";
 import { foldSearchQuery, rankSearchItems, scoreThreadSearch } from "@t3tools/shared/paletteSearch";
 import type { ContextMenuItem, EnvironmentId, ThreadId } from "@t3tools/contracts";
+import { isProviderNativeSubagentThread } from "@t3tools/contracts";
 import type { SidebarProjectSortOrder, SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import type { AsyncResult } from "effect/reactivity";
 import {
@@ -545,47 +546,187 @@ export function isSidebarSubagentThread(thread: Pick<SidebarThreadSummary, "line
   return thread.lineage.relationshipToParent === "subagent";
 }
 
-// Subagent threads have no sidebar row, so an open subagent is represented by
-// its nearest non-subagent ancestor. A broken chain (missing parent, cycle,
-// other environment) resolves to the thread itself, which then matches no row.
-export function resolveSidebarRowThreadId(
-  threadId: ThreadId,
-  environmentId: EnvironmentId,
-  threads: readonly Pick<SidebarThreadSummary, "id" | "environmentId" | "lineage">[],
-): ThreadId {
-  const findThread = (id: ThreadId) =>
-    threads.find((thread) => thread.id === id && thread.environmentId === environmentId);
-  const visited = new Set<ThreadId>();
-  let thread = findThread(threadId);
-  while (thread !== undefined && isSidebarSubagentThread(thread)) {
-    if (thread.lineage.parentThreadId === null || visited.has(thread.id)) return threadId;
-    visited.add(thread.id);
-    thread = findThread(thread.lineage.parentThreadId);
+type SidebarTreeThread = Pick<
+  SidebarThreadSummary,
+  | "id"
+  | "environmentId"
+  | "projectId"
+  | "lineage"
+  | "creationSource"
+  | "delegatedFrom"
+  | "archivedAt"
+  | "deletedAt"
+  | "createdAt"
+>;
+
+export interface SidebarThreadTree<T> {
+  /** Threads listed under each parent row, by the parent's thread key, oldest first. */
+  readonly childrenByParentKey: ReadonlyMap<string, readonly T[]>;
+  /** The parent each thread without a top-level row hangs under, by the thread's key. */
+  readonly parentKeyByKey: ReadonlyMap<string, string>;
+  /** Provider-native subagents: they hang under a parent but have no row of their own. */
+  readonly rowlessKeys: ReadonlySet<string>;
+}
+
+export const SIDEBAR_CHILD_INDENT_DEPTH_CAP = 3;
+
+const sidebarTreeKey = (thread: Pick<SidebarThreadSummary, "environmentId" | "id">) =>
+  scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+
+function sidebarParentKey(thread: SidebarTreeThread): string | null {
+  if (thread.lineage.relationshipToParent === "subagent" && thread.lineage.parentThreadId) {
+    return scopedThreadKey(scopeThreadRef(thread.environmentId, thread.lineage.parentThreadId));
   }
-  return thread?.id ?? threadId;
+  return thread.delegatedFrom ? scopedThreadKey(thread.delegatedFrom) : null;
 }
 
 /**
- * `delegatedUnderParent` holds the tasks linked environments run for a thread
- * the sidebar lists, by thread key; they show under that thread, as subagents do.
+ * Subagents and delegated tasks list under their parent's row. One falls back to a
+ * top-level row when its parent is not listed (missing, archived, deleted) or sits
+ * in another project of the same environment, so its work is never out of reach.
+ * Provider-native subagents have no row; they resolve to their parent's.
  */
+export function buildSidebarThreadTree<T extends SidebarTreeThread>(
+  threads: readonly T[],
+): SidebarThreadTree<T> {
+  const byKey = new Map(threads.map((thread) => [sidebarTreeKey(thread), thread] as const));
+  const listed = (thread: SidebarTreeThread) =>
+    thread.archivedAt === null && thread.deletedAt === null;
+  const parentKeyByKey = new Map<string, string>();
+  const rowlessKeys = new Set<string>();
+  for (const thread of threads) {
+    const parentKey = sidebarParentKey(thread);
+    if (parentKey !== null && isProviderNativeSubagentThread(thread)) {
+      parentKeyByKey.set(sidebarTreeKey(thread), parentKey);
+      rowlessKeys.add(sidebarTreeKey(thread));
+      continue;
+    }
+    const parent = parentKey === null ? undefined : byKey.get(parentKey);
+    if (parentKey === null || parent === undefined || !listed(thread) || !listed(parent)) continue;
+    if (parent.environmentId === thread.environmentId && parent.projectId !== thread.projectId) {
+      continue;
+    }
+    parentKeyByKey.set(sidebarTreeKey(thread), parentKey);
+  }
+  // A parent loop has no top-level row to hang from; its first member becomes one.
+  for (const key of parentKeyByKey.keys()) {
+    const seen = new Set([key]);
+    for (let next = parentKeyByKey.get(key); next !== undefined; next = parentKeyByKey.get(next)) {
+      if (seen.has(next)) {
+        parentKeyByKey.delete(key);
+        break;
+      }
+      seen.add(next);
+    }
+  }
+  const childrenByParentKey = new Map<string, T[]>();
+  for (const thread of threads) {
+    const parentKey = parentKeyByKey.get(sidebarTreeKey(thread));
+    if (parentKey === undefined || rowlessKeys.has(sidebarTreeKey(thread))) continue;
+    const siblings = childrenByParentKey.get(parentKey);
+    if (siblings) siblings.push(thread);
+    else childrenByParentKey.set(parentKey, [thread]);
+  }
+  for (const siblings of childrenByParentKey.values()) {
+    siblings.sort(
+      (left, right) =>
+        left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id),
+    );
+  }
+  return { childrenByParentKey, parentKeyByKey, rowlessKeys };
+}
+
+export interface SidebarChildRow<T> {
+  readonly thread: T;
+  readonly key: string;
+  readonly parentKey: string;
+  /** 1 for a direct child; indentation stops growing at SIDEBAR_CHILD_INDENT_DEPTH_CAP. */
+  readonly depth: number;
+  readonly childCount: number;
+  readonly expanded: boolean;
+}
+
+/** The rows under `parentKey`, depth first, skipping what collapsed parents hide. */
+export function sidebarChildRows<T extends SidebarTreeThread>(
+  tree: SidebarThreadTree<T>,
+  parentKey: string,
+  collapsedKeys: ReadonlySet<string>,
+): SidebarChildRow<T>[] {
+  const rows: SidebarChildRow<T>[] = [];
+  const visit = (key: string, depth: number) => {
+    if (collapsedKeys.has(key)) return;
+    for (const thread of tree.childrenByParentKey.get(key) ?? []) {
+      const childKey = sidebarTreeKey(thread);
+      const childCount = tree.childrenByParentKey.get(childKey)?.length ?? 0;
+      rows.push({
+        thread,
+        key: childKey,
+        parentKey: key,
+        depth,
+        childCount,
+        expanded: childCount > 0 && !collapsedKeys.has(childKey),
+      });
+      visit(childKey, depth + 1);
+    }
+  };
+  visit(parentKey, 1);
+  return rows;
+}
+
+/** The top-level row a thread lists under, or the thread itself. */
+export function sidebarRootThreadKey(
+  threadKey: string,
+  tree: Pick<SidebarThreadTree<unknown>, "parentKeyByKey">,
+): string {
+  let key = threadKey;
+  for (let parent = tree.parentKeyByKey.get(key); parent !== undefined;) {
+    key = parent;
+    parent = tree.parentKeyByKey.get(key);
+  }
+  return key;
+}
+
+/**
+ * The row that stands for an open thread: its own, its closest ancestor with a row, or the
+ * outermost ancestor a collapse hides it under.
+ */
+export function resolveSidebarRowThreadKey(
+  threadKey: string,
+  tree: Pick<SidebarThreadTree<unknown>, "parentKeyByKey" | "rowlessKeys">,
+  collapsedKeys: ReadonlySet<string>,
+): string {
+  let rowKey = threadKey;
+  while (tree.rowlessKeys.has(rowKey)) {
+    const parent = tree.parentKeyByKey.get(rowKey);
+    if (parent === undefined) break;
+    rowKey = parent;
+  }
+  const chain = [rowKey];
+  for (
+    let parent = tree.parentKeyByKey.get(rowKey);
+    parent !== undefined;
+    parent = tree.parentKeyByKey.get(parent)
+  ) {
+    chain.unshift(parent);
+  }
+  const hiddenUnder = chain.findIndex((key) => collapsedKeys.has(key));
+  return hiddenUnder === -1 ? rowKey : chain[hiddenUnder]!;
+}
+
+/** `nestedKeys` are the threads that list under a parent row (`buildSidebarThreadTree`). */
 export function filterSidebarV2VisibleThreads<
-  T extends Pick<SidebarThreadSummary, "archivedAt" | "environmentId" | "id" | "lineage"> & {
+  T extends Pick<SidebarThreadSummary, "archivedAt" | "environmentId" | "id"> & {
     projectId: string;
   },
 >(
   threads: readonly T[],
   scopedProjectKeys: ReadonlySet<string> | null,
-  delegatedUnderParent: ReadonlySet<string>,
+  nestedKeys: Pick<ReadonlySet<string>, "has">,
 ): T[] {
   return threads.filter(
     (thread) =>
       thread.archivedAt === null &&
-      !isShownUnderParent(
-        { environmentId: thread.environmentId, threadId: thread.id },
-        thread.lineage,
-        delegatedUnderParent,
-      ) &&
+      !nestedKeys.has(sidebarTreeKey(thread)) &&
       (scopedProjectKeys === null ||
         scopedProjectKeys.has(`${thread.environmentId}:${thread.projectId}`)),
   );
@@ -1323,17 +1464,16 @@ export function sortLogicalProjectsForSidebar<
 
 export function sortSidebarV2ProjectGroups<
   TProject extends LogicalSidebarProject,
-  TThread extends ScopedSidebarThread &
-    Pick<SidebarThreadSummary, "environmentId" | "id" | "lineage">,
+  TThread extends ScopedSidebarThread & Pick<SidebarThreadSummary, "environmentId" | "id">,
 >(
   projects: readonly TProject[],
   threads: readonly TThread[],
   sortOrder: SidebarProjectSortOrder,
-  delegatedUnderParent: ReadonlySet<string>,
+  nestedKeys: Pick<ReadonlySet<string>, "has">,
 ): TProject[] {
   return sortLogicalProjectsForSidebar(
     projects,
-    filterSidebarV2VisibleThreads(threads, null, delegatedUnderParent),
+    filterSidebarV2VisibleThreads(threads, null, nestedKeys),
     sortOrder,
   );
 }

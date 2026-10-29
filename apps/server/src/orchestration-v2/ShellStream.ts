@@ -14,6 +14,7 @@ import type {
 import {
   isLiveSubagentShell,
   isOlderSettledThreadShell,
+  isProviderNativeSubagentThread,
   OrchestrationProjectShell as ProjectShellSchema,
   OrchestrationV2ThreadShell as ThreadShellSchema,
 } from "@t3tools/contracts";
@@ -71,9 +72,9 @@ export function buildActiveShellSnapshot(input: {
 }
 
 /**
- * Idle subagent children have no sidebar row, so clients that opt in read them from their thread
- * family instead. A child stays while it is live or the parent of another child, so the request
- * and working walks over shell rows never meet a gap in a nested chain.
+ * Idle provider-native children have no sidebar row, so clients that opt in read them from their
+ * thread family instead. Delegated children list under their parent and always stay. A child also
+ * stays while it is live or the parent of another child, so walks over shell rows have no gaps.
  */
 export function omitIdleSubagentShells(
   threads: ReadonlyArray<OrchestrationV2ThreadShell>,
@@ -86,7 +87,7 @@ export function omitIdleSubagentShells(
   }
   return threads.filter(
     (thread) =>
-      thread.lineage.relationshipToParent !== "subagent" ||
+      !isProviderNativeSubagentThread(thread) ||
       isLiveSubagentShell(thread) ||
       parentIds.has(thread.id),
   );
@@ -118,7 +119,7 @@ const NEWEST_SETTLED_KEPT = 25;
 /**
  * Opted-in snapshots keep the 25 newest settled top-level threads (and ties) and count the rest per
  * project in `olderSettled`; clients page them with `getOlderSettledThreads`. Older rows stay while
- * pinned, snoozed, live, or above a kept subagent, so walks over shell rows still find them.
+ * pinned, snoozed, live, or above a live subagent, so walks over shell rows still find them.
  */
 export function omitOlderSettledShells(input: {
   readonly threads: ReadonlyArray<OrchestrationV2ThreadShell>;
@@ -142,21 +143,30 @@ export function omitOlderSettledShells(input: {
   const beforeMs = settledTimes[NEWEST_SETTLED_KEPT - 1] ?? settledTimes.at(-1) ?? nowMs;
   const ancestorIds = new Set<string>();
   for (const thread of input.threads) {
-    if (thread.lineage.relationshipToParent !== "subagent") continue;
+    if (thread.lineage.relationshipToParent !== "subagent" || !isLiveSubagentShell(thread))
+      continue;
     if (thread.lineage.parentThreadId !== null) ancestorIds.add(thread.lineage.parentThreadId);
     ancestorIds.add(thread.lineage.rootThreadId);
   }
   const counts = new Map<ProjectId, number>();
-  const threads = input.threads.filter((thread) => {
+  const omittedIds = new Set<string>();
+  const kept = input.threads.filter((thread) => {
     if (!isOlderSettledThreadShell(thread, beforeMs)) return true;
     counts.set(thread.projectId, (counts.get(thread.projectId) ?? 0) + 1);
-    return (
+    const keep =
       thread.pinnedAt != null ||
       (thread.snoozedUntil != null && DateTime.toEpochMillis(thread.snoozedUntil) > nowMs) ||
       isLiveSubagentShell(thread) ||
-      ancestorIds.has(thread.id)
-    );
+      ancestorIds.has(thread.id);
+    if (!keep) omittedIds.add(thread.id);
+    return keep;
   });
+  // Idle children of an omitted root leave with it; its family read brings them back.
+  const threads = kept.filter(
+    (thread) =>
+      thread.lineage.relationshipToParent !== "subagent" ||
+      !omittedIds.has(thread.lineage.rootThreadId),
+  );
   return {
     threads,
     olderSettled: {

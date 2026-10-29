@@ -57,6 +57,24 @@ describe("sidebar keyboard navigation", () => {
     expect(tree.root.querySelectorAll('[tabindex="0"]')).toHaveLength(1);
   });
 
+  it("levels child threads by their depth under thread rows", () => {
+    using tree = setup();
+    const parent = tree.row("parent", "shelf:settled");
+    const child = tree.row("child", "parent");
+    const grandchild = tree.row("grandchild", "child");
+    tree.install();
+    expect([parent, child, grandchild].map((row) => row.getAttribute("aria-level"))).toEqual([
+      "2",
+      "3",
+      "4",
+    ]);
+    child.focus();
+    press(child, "ArrowLeft");
+    expect(document.activeElement).toBe(parent);
+    press(parent, "ArrowRight");
+    expect(document.activeElement).toBe(child);
+  });
+
   it("expands a group before entering its first child and returns to the parent", async () => {
     using tree = setup();
     const group = tree.row("project");

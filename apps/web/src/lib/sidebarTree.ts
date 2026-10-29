@@ -86,15 +86,27 @@ export function installSidebarTree(root: HTMLElement) {
     tabStop = selected;
     setTabIndex(root, selected ? -1 : 0);
     const siblings = new Map<string, HTMLElement[]>();
+    const byId = new Map(rows.map((row) => [row.dataset.sidebarRow, row]));
     for (const row of rows) {
       const parent = row.dataset.sidebarParent ?? "";
       const group = siblings.get(parent) ?? [];
       group.push(row);
       siblings.set(parent, group);
-      setAttribute(row, "aria-level", parent ? "2" : "1");
+      // Child threads nest under thread rows; a parent outside the rows still counts once.
+      let level = 1;
+      const seen = new Set<HTMLElement>([row]);
+      for (let ancestor = row; ancestor.dataset.sidebarParent; level += 1) {
+        const next = byId.get(ancestor.dataset.sidebarParent);
+        if (next === undefined || seen.has(next)) {
+          level += 1;
+          break;
+        }
+        seen.add(next);
+        ancestor = next;
+      }
+      setAttribute(row, "aria-level", String(level));
       setTabIndex(row, row === selected ? 0 : -1);
     }
-    const byId = new Map(rows.map((row) => [row.dataset.sidebarRow, row]));
     for (const control of ownTabIndex.keys()) if (!control.isConnected) ownTabIndex.delete(control);
     for (const control of root.querySelectorAll<HTMLElement>(CONTROL)) {
       if (control.matches(ROW) || control.matches(TEXT_ENTRY)) continue;
