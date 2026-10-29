@@ -495,6 +495,24 @@ it.layer(NodeServices.layer)("build-desktop-artifact", (it) => {
     }),
   );
 
+  // scripts/update-local-app.sh installs Kode.app; the bundle id keys the installed app's data.
+  it.effect("names the bundle Kode without changing the bundle id", () =>
+    Effect.gen(function* () {
+      const release = yield* createBuildConfig(
+        "mac",
+        "dmg",
+        "0.0.33",
+        false,
+        false,
+        undefined,
+        undefined,
+      );
+
+      assert.equal(release.productName, "Kode");
+      assert.equal(release.appId, "com.t3tools.t3code");
+    }),
+  );
+
   it.effect("omits update feeds for pull request preview builds", () =>
     Effect.gen(function* () {
       const preview = yield* createBuildConfig(
