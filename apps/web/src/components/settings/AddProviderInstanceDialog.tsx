@@ -55,6 +55,7 @@ import { resolveOfficialAcpRegistryIconUrl } from "./AcpRegistryIcon";
 import { AddManagedCodexAccountDialog } from "./CodexSetupSection";
 import { MultipleAccountsNote } from "./MultipleAccountsNote";
 import { ProviderEnvironmentSection } from "./ProviderInstanceCard";
+import { ProviderHubPicker } from "./ProviderHubPicker";
 
 /** Limit the slug to 48 chars so the composed ProviderInstanceId fits its 64-char cap. */
 function slugifyLabel(value: string): string {
@@ -74,6 +75,7 @@ function deriveInstanceId(driver: ProviderDriverKind, label: string): string {
 const INSTANCE_ID_PATTERN = /^[a-zA-Z][a-zA-Z0-9_-]*$/;
 const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("codex");
 const ACP_REGISTRY_DRIVER_KIND = ProviderDriverKind.make("acpRegistry");
+const CLAUDE_DRIVER_KIND = ProviderDriverKind.make("claudeAgent");
 const DEFAULT_DRIVER_OPTION = providerClients.definitions[0]!;
 const DRIVER_OPTIONS = providerClients.definitions.filter(
   (option) => option.driverKind !== ACP_REGISTRY_DRIVER_KIND,
@@ -173,6 +175,8 @@ export function AddProviderInstanceDialog({
   const [localEnvironment, setLocalEnvironment] = useState<
     ReadonlyArray<ProviderInstanceEnvironmentVariable>
   >([]);
+  // Holds only the hub link and its variables; merged into the new Claude instance on save.
+  const [hubDraft, setHubDraft] = useState<ProviderInstanceConfig>({ driver: CLAUDE_DRIVER_KIND });
   const [isManualAcpConfiguration, setIsManualAcpConfiguration] = useState(false);
   const [showMoreProviders, setShowMoreProviders] = useState(false);
   const [configByDriver, setConfigByDriver] = useState<Record<string, Record<string, unknown>>>({});
@@ -356,6 +360,7 @@ export function AddProviderInstanceDialog({
       }),
     );
     setLocalEnvironment([]);
+    setHubDraft({ driver: CLAUDE_DRIVER_KIND });
     setHasAttemptedSubmit(false);
   };
 
@@ -379,6 +384,12 @@ export function AddProviderInstanceDialog({
       ...(normalizedAccentColor ? { accentColor: normalizedAccentColor } : {}),
       ...(hasConfig ? { config } : {}),
       ...(isLocalAcp && localEnvironment.length > 0 ? { environment: localEnvironment } : {}),
+      ...(driver === "claudeAgent" && hubDraft.usageLimitSourceId
+        ? {
+            usageLimitSourceId: hubDraft.usageLimitSourceId,
+            environment: hubDraft.environment ?? [],
+          }
+        : {}),
     };
     const brandedId = ProviderInstanceId.make(instanceId);
     setIsSaving(true);
@@ -672,6 +683,15 @@ export function AddProviderInstanceDialog({
                 />
               </SettingsGroup>
 
+              {driver === "claudeAgent" ? (
+                <SettingsGroup variant="plain" className={cn(wizardStep !== 2 && "hidden")}>
+                  <ProviderHubPicker
+                    instance={hubDraft}
+                    sources={settings.usageLimitSources}
+                    onChange={setHubDraft}
+                  />
+                </SettingsGroup>
+              ) : null}
               {!isAcpRegistry && driverSettingsFields.length > 0 ? (
                 <SettingsGroup variant="plain" className={cn(wizardStep !== 2 && "hidden")}>
                   <ProviderSettingsForm

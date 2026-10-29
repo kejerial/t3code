@@ -152,6 +152,41 @@ describe("SidebarUsageLimits", () => {
     ).toBe("false");
   });
 
+  it("pools a hub-routed instance's accounts into one entry with collapsible account rows", async () => {
+    localStorage.clear();
+    const routed = {
+      ...directAlpha,
+      instanceId: ProviderInstanceId.make("claude_hub"),
+      auth: { status: "authenticated" },
+      usageLimits: { checkedAt, windows: [], unavailable: { reason: "probeFailed" } },
+    } as unknown as ServerProvider;
+    setup({
+      providers: [directAlpha, routed],
+      sources: [{ ...hub, pooledInstanceIds: [routed.instanceId] }],
+    });
+    await using screen = await render(<SidebarUsageLimits />);
+
+    const pools = [...screen.container.querySelectorAll('[data-testid="sidebar-usage-pool"]')];
+    expect(pools).toHaveLength(1);
+    expect(pools[0]?.textContent).toContain("Claude · hub");
+    expect(pools[0]?.textContent).toContain("5-hour46%");
+    expect(pools[0]?.textContent).toContain("Weekly40%");
+    // The direct login of a pooled account does not repeat below the pool.
+    expect(rows(screen.container)).toEqual([]);
+    const members = () =>
+      [...screen.container.querySelectorAll('[data-testid="sidebar-usage-pool-member"]')].map(
+        (row) => row.textContent,
+      );
+    expect(members()).toEqual(["alpha60%2d 0h", "beta20%2d 0h"]);
+
+    await act(() =>
+      screen.container
+        .querySelector<HTMLButtonElement>('[data-testid="sidebar-usage-pool-members-toggle"]')
+        ?.click(),
+    );
+    expect(members()).toEqual([]);
+  });
+
   it("renders nothing when no account reports usage", async () => {
     setup({ sources: [{ ...hub, accounts: [hub.accounts[2]!] }] });
     await using screen = await render(<SidebarUsageLimits />);

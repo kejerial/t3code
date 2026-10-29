@@ -1,5 +1,15 @@
 import type { ServerProviderUsageWindow } from "@t3tools/contracts";
-import { type LimitAccount, remainingPercent } from "@t3tools/shared/usageLimits";
+import {
+  type LimitAccount,
+  type LimitPresentations,
+  collectLimitAccounts,
+  hubAccountLabel,
+  isMainUsageWindow,
+  limitsNotice,
+  poolHubAccounts,
+  pooledInstanceName,
+  remainingPercent,
+} from "@t3tools/shared/usageLimits";
 
 import { PROVIDER_PRESENTATION } from "../usage/usageProviders";
 
@@ -32,6 +42,16 @@ export function providerName(driver: LimitAccount["driver"]): string {
 
 const WINDOW_ORDER: Record<string, number> = { session: 0, weekly: 1, monthly: 2 };
 
+function sortWindows(windows: readonly ServerProviderUsageWindow[]) {
+  return windows.toSorted(
+    (left, right) => (WINDOW_ORDER[left.kind] ?? 3) - (WINDOW_ORDER[right.kind] ?? 3),
+  );
+}
+
+function primaryWindow(windows: readonly ServerProviderUsageWindow[]) {
+  return windows.find((window) => window.kind === "weekly") ?? windows[0];
+}
+
 export function usageTone(window: ServerProviderUsageWindow): SidebarUsageTone {
   const left = remainingPercent(window);
   if (left <= 10) return "critical";
@@ -46,12 +66,8 @@ export function sidebarUsageAccounts(
   return accounts
     .flatMap((account): SidebarUsageAccount[] => {
       // Model-scoped limits ("Weekly · Fable") repeat the account's weekly bar; keep the main ones.
-      const windows = account.limits.windows
-        .filter((window) => !window.label.includes(" · "))
-        .toSorted(
-          (left, right) => (WINDOW_ORDER[left.kind] ?? 3) - (WINDOW_ORDER[right.kind] ?? 3),
-        );
-      const primary = windows.find((window) => window.kind === "weekly") ?? windows[0];
+      const windows = sortWindows(account.limits.windows.filter(isMainUsageWindow));
+      const primary = primaryWindow(windows);
       if (!primary) return [];
       const email = account.email?.trim();
       const identity = email || account.displayName || "Account";
@@ -72,4 +88,98 @@ export function sidebarUsageAccounts(
         String(left.driver).localeCompare(String(right.driver)) ||
         left.label.localeCompare(right.label),
     );
+}
+
+export interface SidebarUsagePoolMember {
+  readonly key: string;
+  /** Email, or the hub's account file name. */
+  readonly identity: string;
+  readonly label: string;
+  /** Weekly when reported; null when the hub could not read this account. */
+  readonly window: ServerProviderUsageWindow | null;
+}
+
+export interface SidebarUsagePool {
+  readonly key: string;
+  readonly driver: LimitAccount["driver"];
+  /** "Claude · hub", or the routed instance's own name. */
+  readonly name: string;
+  readonly sourceLabel: string;
+  readonly readableCount: number;
+  readonly windows: readonly ServerProviderUsageWindow[];
+  readonly primary: ServerProviderUsageWindow;
+  readonly members: readonly SidebarUsagePoolMember[];
+}
+
+const emailKey = (driver: LimitAccount["driver"], email: string | undefined) =>
+  email?.trim() ? `${driver}:${email.trim().toLowerCase()}` : null;
+
+/** A pooled entry per hub-routed instance; its accounts leave the per-account list. */
+export function sidebarUsage(
+  presentations: LimitPresentations,
+  now: number,
+): {
+  readonly pools: readonly SidebarUsagePool[];
+  readonly accounts: readonly SidebarUsageAccount[];
+} {
+  const pools: SidebarUsagePool[] = [];
+  const pooledKeys = new Set<string>();
+  const labelEnvironment = presentations.size > 1;
+  for (const [environmentId, presentation] of presentations) {
+    const providers = (presentation.serverConfig?.providers ?? []).filter(
+      (provider) => provider.enabled,
+    );
+    for (const source of presentation.serverConfig?.usageLimitSources ?? []) {
+      const routed = providers.filter((provider) =>
+        source.pooledInstanceIds?.includes(provider.instanceId),
+      );
+      const seenDrivers = new Set<string>();
+      for (const provider of routed) {
+        if (seenDrivers.has(provider.driver)) continue;
+        seenDrivers.add(provider.driver);
+        const pool = poolHubAccounts(source.accounts, provider.driver, now);
+        const windows = sortWindows(pool.windows);
+        const primary = primaryWindow(windows);
+        if (!primary) continue;
+        for (const account of pool.members) {
+          pooledKeys.add(`${source.id}:${account.id}`);
+          const key = emailKey(account.driver, account.email);
+          if (key) pooledKeys.add(key);
+        }
+        pools.push({
+          key: `${environmentId}:${source.id}:${provider.driver}`,
+          driver: provider.driver,
+          name: pooledInstanceName(provider),
+          sourceLabel: labelEnvironment
+            ? `${presentation.entry.target.label} · ${source.label}`
+            : source.label,
+          readableCount: pool.members.filter(
+            (account) => limitsNotice(account.usageLimits) === null,
+          ).length,
+          windows,
+          primary,
+          members: pool.members.map((account) => {
+            const identity = hubAccountLabel(account);
+            const readable = limitsNotice(account.usageLimits) === null;
+            return {
+              key: `${source.id}:${account.id}`,
+              identity,
+              label: identity.split("@")[0] || identity,
+              window: readable
+                ? (primaryWindow(
+                    sortWindows(account.usageLimits.windows.filter(isMainUsageWindow)),
+                  ) ?? null)
+                : null,
+            };
+          }),
+        });
+      }
+    }
+  }
+  const accounts = collectLimitAccounts(presentations).filter(
+    (account) =>
+      !pooledKeys.has(account.key) &&
+      !pooledKeys.has(emailKey(account.driver, account.email) ?? ""),
+  );
+  return { pools, accounts: sidebarUsageAccounts(accounts) };
 }

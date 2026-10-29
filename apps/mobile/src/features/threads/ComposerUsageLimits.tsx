@@ -1,4 +1,10 @@
 import type { EnvironmentId, UsageLimitsReport } from "@t3tools/contracts";
+import {
+  formatResetsIn,
+  isMainUsageWindow,
+  limitsNotice,
+  remainingPercent,
+} from "@t3tools/shared/usageLimits";
 import { Pressable, ScrollView, View } from "react-native";
 
 import { SymbolView } from "../../components/ui/AppSymbol";
@@ -6,6 +12,46 @@ import { AppText as Text } from "../../components/ui/AppText";
 import { AccountLimits, ResetCredits } from "../usage/UsageLimitsSection";
 
 const DRIVER_LABEL: Partial<Record<string, string>> = { codex: "Codex", claudeAgent: "Claude" };
+
+type PoolMember = NonNullable<UsageLimitsReport["accounts"][number]["pool"]>["members"][number];
+
+function PoolMembers({
+  members,
+  now,
+}: {
+  readonly members: readonly PoolMember[];
+  readonly now: number;
+}) {
+  const readable = members.filter((member) => limitsNotice(member.limits) === null).length;
+  return (
+    <View className="gap-1 pt-1">
+      {readable > 1 ? (
+        <Text className="text-xs text-foreground-tertiary">
+          Average of {readable} accounts, weighted equally: the hub reports percent used, not plan
+          size.
+        </Text>
+      ) : null}
+      {members.map((member) => {
+        const windows = member.limits.windows.filter(isMainUsageWindow);
+        const weekly = windows.find((window) => window.kind === "weekly") ?? windows[0];
+        const readableWeekly = limitsNotice(member.limits) === null ? weekly : undefined;
+        return (
+          <View key={member.label} className="flex-row items-baseline gap-2">
+            <Text className="min-w-0 flex-1 text-xs text-foreground-muted" numberOfLines={1}>
+              {member.label}
+            </Text>
+            <Text className="text-xs tabular-nums text-foreground">
+              {readableWeekly ? `${remainingPercent(readableWeekly)}% left` : "–"}
+            </Text>
+            <Text className="w-24 text-right text-xs tabular-nums text-foreground-tertiary">
+              {readableWeekly ? (formatResetsIn(readableWeekly, now) ?? "") : ""}
+            </Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
 
 export function ComposerUsageLimits({
   report,
@@ -58,7 +104,9 @@ export function ComposerUsageLimits({
               now={now}
               trailing={index === 0 ? close : undefined}
               footer={
-                resetCreditInput && account.limits.resetCredits ? (
+                account.pool ? (
+                  <PoolMembers members={account.pool.members} now={now} />
+                ) : resetCreditInput && account.limits.resetCredits ? (
                   <ResetCredits
                     dense
                     environmentId={environmentId}

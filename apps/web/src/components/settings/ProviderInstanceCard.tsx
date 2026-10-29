@@ -568,6 +568,7 @@ interface ProviderInstanceCardProps {
   readonly onDelete?: (() => void) | undefined;
   readonly headerAction?: ReactNode | undefined;
   readonly setup?: ReactNode;
+  readonly hub?: ReactNode;
   readonly runtime?: ReactNode;
   readonly hiddenModels: ReadonlyArray<string>;
   readonly favoriteModels: ReadonlyArray<string>;
@@ -613,6 +614,7 @@ export function ProviderInstanceCard({
   onDelete,
   headerAction,
   setup,
+  hub,
   runtime,
   hiddenModels,
   favoriteModels,
@@ -1187,6 +1189,17 @@ export function ProviderInstanceCard({
               ))}
             </div>
           ) : null}
+        </SettingsSection>
+      ) : null}
+
+      {hub ? (
+        <SettingsSection
+          title="Hub"
+          inert={readOnly}
+          aria-disabled={readOnly || undefined}
+          className={readOnly ? "opacity-50 select-none" : undefined}
+        >
+          {hub}
         </SettingsSection>
       ) : null}
 

@@ -5,6 +5,7 @@ import {
   type ProviderDriverKind,
   type ResolvedKeybindingsConfig,
 } from "@t3tools/contracts";
+import { useAtomValue } from "@effect/atom-react";
 import { memo, useRef, useState } from "react";
 import { Badge } from "../ui/badge";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
@@ -18,6 +19,7 @@ import { shouldShowInstanceBadge, type ProviderInstanceEntry } from "../../provi
 import { ComposerControl, type ComposerControlSize } from "./ComposerControl";
 import { useComposerMenuProps } from "./composerEventScope";
 import { shortcutLabelForCommand } from "../../keybindings";
+import { hubPooledInstanceIdsAtom } from "../../state/server";
 
 /** Holds the page still behind the open picker; its lifetime is the popup element's. */
 function lockBackgroundScroll(popup: HTMLElement | null) {
@@ -123,13 +125,19 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     ? `${getDisplayModelName(selectedModel)}${selectedModel.isUnavailable ? " (Unavailable)" : ""}`
     : triggerTitle;
   // Name the account, not just the model: three Claude logins share one model list.
-  const accountEmail = activeEntry?.snapshot.auth.email?.trim() || null;
+  // A hub-routed instance has no fixed account; the hub picks one per request.
+  const hubPooled = useAtomValue(hubPooledInstanceIdsAtom(props.environmentId))
+    .split("\n")
+    .includes(props.activeInstanceId);
+  const accountEmail = hubPooled ? null : activeEntry?.snapshot.auth.email?.trim() || null;
   const accountLabel =
     props.selectedModels !== undefined
       ? null
-      : (accountEmail?.split("@")[0] ??
-          (showInstanceBadgeFor(activeEntry) ? activeEntry?.displayName : null)) ||
-        null;
+      : hubPooled
+        ? "hub"
+        : (accountEmail?.split("@")[0] ??
+            (showInstanceBadgeFor(activeEntry) ? activeEntry?.displayName : null)) ||
+          null;
   const showInstanceBadge = showInstanceBadgeFor(activeEntry);
 
   const setIsMenuOpen = (open: boolean) => {
@@ -180,7 +188,7 @@ export const ProviderModelPicker = memo(function ProviderModelPicker(props: {
     : undefined;
   const triggerTooltipBase = [
     props.triggerLabel ?? allModelNames ?? triggerLabel,
-    accountEmail ?? accountLabel,
+    hubPooled ? "hub picks the account" : (accountEmail ?? accountLabel),
   ]
     .filter(Boolean)
     .join(" · ");

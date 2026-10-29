@@ -37,6 +37,14 @@ export const serverEnvironment = createServerEnvironmentAtoms(connectionAtomRunt
   usageLimitSources: true,
   usageLimitsCommand: true,
 });
+/** Hub-routed instance ids, joined so pickers skip config events that leave them unchanged. */
+export const hubPooledInstanceIdsAtom = Atom.family((environmentId: EnvironmentId | null) =>
+  Atom.make((get) =>
+    (get(serverEnvironment.configValueAtom(environmentId))?.usageLimitSources ?? [])
+      .flatMap((source) => source.pooledInstanceIds ?? [])
+      .join("\n"),
+  ),
+);
 export const environmentUpdateStatesAtom = environmentAtomList(
   "web-environment-update-states",
   serverEnvironment.updateStateAtom,

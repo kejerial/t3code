@@ -1,5 +1,6 @@
 import {
   DEFAULT_PROVIDER_HEALTH_REFRESH_INTERVAL,
+  ProviderInstanceId,
   UsageLimitSourceError,
   type UsageLimitSourceConsumeResetCreditInput,
   type ProviderConsumeResetCreditResult,
@@ -44,6 +45,28 @@ function sourceLabel(id: string, config: UsageLimitSourceConfig): string {
   } catch {
     return fallback;
   }
+}
+
+function pooledInstanceLinks(settings: ServerSettings): string {
+  return Object.entries(settings.providerInstances)
+    .flatMap(([instanceId, instance]) =>
+      instance.usageLimitSourceId ? [`${instance.usageLimitSourceId}:${instanceId}`] : [],
+    )
+    .join("\n");
+}
+
+function withPooledInstances(
+  snapshots: ReadonlyArray<UsageLimitSourceSnapshot>,
+  settings: ServerSettings | null,
+): ReadonlyArray<UsageLimitSourceSnapshot> {
+  const instances = Object.entries(settings?.providerInstances ?? {});
+  return snapshots.map((snapshot) => {
+    const { pooledInstanceIds: _previous, ...rest } = snapshot;
+    const pooled = instances.flatMap(([instanceId, instance]) =>
+      instance.usageLimitSourceId === snapshot.id ? [ProviderInstanceId.make(instanceId)] : [],
+    );
+    return pooled.length > 0 ? { ...rest, pooledInstanceIds: pooled } : rest;
+  });
 }
 
 /** @public */
@@ -97,7 +120,7 @@ export const make = Effect.gen(function* () {
       ([id, config]) => readSource(id as UsageLimitSourceId, config),
       { concurrency: 4 },
     );
-    yield* publish(snapshots);
+    yield* publish(withPooledInstances(snapshots, settings));
   }).pipe(refreshLock.withPermits(1), Effect.ignoreCause({ log: true }));
 
   // Shares the refresh lock so a stale in-flight read cannot overwrite a redemption.
@@ -116,13 +139,21 @@ export const make = Effect.gen(function* () {
     const result = yield* api.consume(config, input.accountId, input.creditId);
     const snapshot = yield* readSource(input.sourceId, config);
     const previous = yield* Ref.get(stateRef);
-    yield* publish(previous.map((source) => (source.id === input.sourceId ? snapshot : source)));
+    yield* publish(
+      withPooledInstances(
+        previous.map((source) => (source.id === input.sourceId ? snapshot : source)),
+        settings,
+      ),
+    );
     return result;
   }, refreshLock.withPermits(1));
 
   yield* settingsService.streamChanges.pipe(
-    Stream.map((settings) => settings.usageLimitSources),
-    Stream.changes,
+    Stream.changesWith(
+      (previous, next) =>
+        Equal.equals(previous.usageLimitSources, next.usageLimitSources) &&
+        pooledInstanceLinks(previous) === pooledInstanceLinks(next),
+    ),
     Stream.runForEach(() => refresh),
     Effect.forkScoped,
   );

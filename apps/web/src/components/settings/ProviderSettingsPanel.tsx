@@ -99,6 +99,7 @@ import { AddProviderInstanceDialog } from "./AddProviderInstanceDialog";
 import { ExpandableText } from "./ExpandableText";
 import { ProviderInstanceCard } from "./ProviderInstanceCard";
 import { UsageProviderSettings } from "./UsageProviderSettings";
+import { ProviderHubPicker } from "./ProviderHubPicker";
 import { ProviderSetupSection, readAntigravityAuthMethod } from "./ProviderSetupSection";
 import { ProviderAuthenticationSection } from "./ProviderAuthenticationSection";
 import { CodexSetupSection, CodexManagedRuntimeFields } from "./CodexSetupSection";
@@ -920,6 +921,7 @@ export function EnvironmentProviderSettings({
         key={row.instanceId}
         environmentId={environmentId}
         environmentLabel={environmentLabel}
+        usageLimitSources={settings.usageLimitSources}
         instanceId={row.instanceId}
         driver={row.driver}
         explicitInstance={row.explicitInstance}
@@ -1206,6 +1208,7 @@ const NO_MODELS: ReadonlyArray<string> = [];
 function ProviderInstanceRow({
   environmentId,
   environmentLabel,
+  usageLimitSources,
   instanceId,
   driver,
   explicitInstance,
@@ -1226,6 +1229,7 @@ function ProviderInstanceRow({
 }: {
   readonly environmentId: EnvironmentId;
   readonly environmentLabel: string;
+  readonly usageLimitSources: UnifiedSettings["usageLimitSources"];
   readonly instanceId: ProviderInstanceId;
   readonly driver: ProviderDriverKind;
   readonly explicitInstance: ProviderInstanceConfig | undefined;
@@ -1308,6 +1312,16 @@ function ProviderInstanceRow({
         ) : undefined
       }
       canWriteSettings={canWriteSettings}
+      hub={
+        mode === "editor" && driver === "claudeAgent" ? (
+          <ProviderHubPicker
+            instance={instance}
+            sources={usageLimitSources}
+            readOnly={readOnly}
+            onChange={(next) => actions.updateInstance(instanceId, instance, next)}
+          />
+        ) : undefined
+      }
       setup={
         mode === "editor" && driver === "antigravity" ? (
           <ProviderSetupSection
