@@ -593,7 +593,6 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({
       label: "Waiting",
       colorClass: "text-sidebar-muted-foreground",
-      dotClass: "bg-sidebar-muted-foreground",
       pulse: false,
     });
   });
@@ -668,6 +667,23 @@ describe("resolveThreadStatusPill", () => {
     ).toMatchObject({ label: "Failed", pulse: false });
   });
 
+  it.each(["interrupted", "cancelled"] as const)(
+    "shows stopped, not completed, when the unseen run was %s",
+    (status) => {
+      expect(
+        resolveThreadStatusPill({
+          thread: {
+            ...baseThread,
+            interactionMode: "default",
+            latestRun: { ...makeLatestRun(), status },
+            lastVisitedAt: "2026-03-09T10:04:00.000Z",
+            runtime: { ...baseThread.runtime, status: "idle", activeRunId: null },
+          },
+        }),
+      ).toMatchObject({ label: "Stopped", pulse: false });
+    },
+  );
+
   it("shows failed, not plan ready, when a plan run proposed a plan and then failed", () => {
     expect(
       resolveThreadStatusPill({
@@ -702,7 +718,6 @@ describe("resolveProjectStatusIndicator", () => {
     const waiting = {
       label: "Waiting" as const,
       colorClass: "text-sidebar-muted-foreground",
-      dotClass: "bg-sidebar-muted-foreground",
       pulse: false,
     };
 
@@ -712,7 +727,6 @@ describe("resolveProjectStatusIndicator", () => {
         {
           label: "Working",
           colorClass: "text-sky-600",
-          dotClass: "bg-sky-500",
           pulse: true,
         },
       ]),
@@ -722,7 +736,6 @@ describe("resolveProjectStatusIndicator", () => {
         {
           label: "Plan Ready",
           colorClass: "text-violet-600",
-          dotClass: "bg-violet-500",
           pulse: false,
         },
         waiting,

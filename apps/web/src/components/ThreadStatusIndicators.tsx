@@ -16,7 +16,20 @@ import {
   type ThreadPullRequestLink,
   type VcsStatusResult,
 } from "@t3tools/contracts";
-import { TerminalIcon } from "lucide-react";
+import {
+  CircleCheckIcon,
+  CircleStopIcon,
+  CircleXIcon,
+  HourglassIcon,
+  ListChecksIcon,
+  LoaderCircleIcon,
+  type LucideIcon,
+  MessageCircleQuestionIcon,
+  PlugIcon,
+  ShieldAlertIcon,
+  TerminalIcon,
+  UserRoundIcon,
+} from "lucide-react";
 import { useEnvironment, usePrimaryEnvironmentId } from "../state/environments";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { useProject } from "../state/entities";
@@ -568,36 +581,28 @@ export function ThreadTerminalStatusButton({
   );
 }
 
-function ThreadStatusLabel({
-  status,
-  compact = false,
-}: {
-  status: ThreadStatusPill;
-  compact?: boolean;
-}) {
-  if (compact) {
-    return (
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <span
-              role="img"
-              aria-label={status.label}
-              className={`inline-flex size-3.5 shrink-0 items-center justify-center ${status.colorClass}`}
-            />
-          }
-        >
-          <span
-            className={`size-[9px] rounded-full ${status.dotClass} ${
-              status.pulse ? "motion-safe:animate-status-pulse" : ""
-            }`}
-          />
-        </TooltipTrigger>
-        <TooltipPopup side="top">{status.label}</TooltipPopup>
-      </Tooltip>
-    );
-  }
+const THREAD_STATUS_ICONS: Record<ThreadStatusPill["label"], LucideIcon> = {
+  "Pending Approval": ShieldAlertIcon,
+  "Awaiting Input": MessageCircleQuestionIcon,
+  "Guest Request": UserRoundIcon,
+  Working: LoaderCircleIcon,
+  Connecting: PlugIcon,
+  Waiting: HourglassIcon,
+  Failed: CircleXIcon,
+  "Plan Ready": ListChecksIcon,
+  Stopped: CircleStopIcon,
+  Completed: CircleCheckIcon,
+};
 
+// These states block the agent until the user acts, so they get a filled chip.
+const NEEDS_USER_STATUSES: ReadonlySet<ThreadStatusPill["label"]> = new Set([
+  "Pending Approval",
+  "Awaiting Input",
+  "Guest Request",
+]);
+
+function ThreadStatusLabel({ status }: { status: ThreadStatusPill }) {
+  const Icon = THREAD_STATUS_ICONS[status.label];
   return (
     <Tooltip>
       <TooltipTrigger
@@ -605,14 +610,17 @@ function ThreadStatusLabel({
           <span
             role="img"
             aria-label={status.label}
-            className={`inline-flex items-center gap-1 text-3xs ${status.colorClass}`}
+            className={cn(
+              "inline-flex items-center gap-1 text-3xs",
+              status.colorClass,
+              NEEDS_USER_STATUSES.has(status.label) &&
+                "rounded-sm bg-current/15 px-1 py-px font-medium",
+            )}
           />
         }
       >
-        <span
-          className={`h-1.5 w-1.5 rounded-full ${status.dotClass} ${
-            status.pulse ? "motion-safe:animate-status-pulse" : ""
-          }`}
+        <Icon
+          className={cn("size-3 shrink-0", status.pulse && "motion-safe:animate-status-pulse")}
         />
         <span className="hidden md:inline">{status.label}</span>
       </TooltipTrigger>
