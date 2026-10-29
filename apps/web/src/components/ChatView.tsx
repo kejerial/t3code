@@ -110,7 +110,9 @@ import { resolveThreadReferenceCopyTarget } from "@t3tools/client-runtime/thread
 import { resolveTerminalSessionLabel } from "@t3tools/shared/terminalLabels";
 import { useAtomValue } from "@effect/atom-react";
 import { type SetStateAction, use, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { BackgroundThreadContext } from "./chat/backgroundThread";
+import { BackgroundThreadContext, SplitPaneContext } from "./chat/backgroundThread";
+import { XIcon } from "lucide-react";
+import { Button } from "./ui/button";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { assistantCitationFromLocation } from "../lib/assistantCitationNavigation";
 import type { AssistantCitationSourceAnchor } from "~/lib/assistantTextSelection";
@@ -490,7 +492,14 @@ export default function ChatView(props: ChatViewProps) {
         });
   const promptRef = useRef("");
   const localComposerRef = useRef<ChatComposerHandle | null>(null);
-  const composerRef = useComposerHandleContext() ?? localComposerRef;
+  const splitPane = use(SplitPaneContext);
+  const backgroundThread = use(BackgroundThreadContext);
+  // Only the focused pane's composer answers the palette and other app-level callers.
+  const sharedComposerRef = useComposerHandleContext();
+  const composerRef = splitPane.focused
+    ? (sharedComposerRef ?? localComposerRef)
+    : localComposerRef;
+  const isBackgroundThread = useStableCallback(() => backgroundThread);
   const queuedRunEdit = useQueuedRunEdit({
     environmentId,
     routeThreadRef,
@@ -679,7 +688,8 @@ export default function ChatView(props: ChatViewProps) {
     window.addEventListener("dragend", clearWorkspaceFileDrag);
     return () => window.removeEventListener("dragend", clearWorkspaceFileDrag);
   }, [isWorkspaceFileDragActive]);
-  const prefersPlanSidebarSheet = useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY);
+  const prefersPlanSidebarSheet =
+    useMediaQuery(RIGHT_PANEL_INLINE_LAYOUT_MEDIA_QUERY) || splitPane.count > 1;
   const isMobileViewport = useMediaQuery("max-sm");
   const [workspaceLayoutElement, setWorkspaceLayoutElement] = useState<HTMLDivElement | null>(null);
   const threadPanelPopoverAnchorRef = useRef<HTMLElement | null>(null);
@@ -699,8 +709,15 @@ export default function ChatView(props: ChatViewProps) {
     setPendingServerThreadStartFromOriginByThreadId,
   ] = useState<Record<string, boolean>>({});
   const legendListRef = useRef<LegendListRef | null>(null);
-  const conversationArea = workspaceAreaProps("conversation", 1, "Conversation");
-  const composerArea = workspaceAreaProps("composer", 2, "Message input");
+  // Area cycling is document-wide, so only the focused pane takes part.
+  const conversationArea = {
+    ...workspaceAreaProps("conversation", 1, "Conversation"),
+    ...(backgroundThread ? { "data-workspace-area": undefined } : {}),
+  };
+  const composerArea = {
+    ...workspaceAreaProps("composer", 2, "Message input"),
+    ...(backgroundThread ? { "data-workspace-area": undefined } : {}),
+  };
   const [composerOverlayElement, setComposerOverlayElement] = useState<HTMLDivElement | null>(null);
   const [composerTimelineInset, setComposerTimelineInset] = useState(0);
   const composerTimelineInsetRef = useRef(0);
@@ -1573,7 +1590,6 @@ export default function ChatView(props: ChatViewProps) {
     resourceKey: `git-status:${activeThreadKey ?? ""}:${gitStatusCwd ?? ""}`,
   });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
-  const backgroundThread = use(BackgroundThreadContext);
   const scriptKeybindings =
     useAtomValue(serverEnvironment.configValueAtom(environmentId))?.keybindings ??
     DEFAULT_RESOLVED_KEYBINDINGS;
@@ -1764,7 +1780,13 @@ export default function ChatView(props: ChatViewProps) {
   };
   const onInterruptStable = useStableCallback(onInterrupt);
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- window listener for the desktop snapshot event that focuses the composer
-  useEffect(() => subscribeSnapShotComposerFocus(focusComposerStable), [focusComposerStable]);
+  useEffect(
+    () =>
+      subscribeSnapShotComposerFocus(() => {
+        if (!isBackgroundThread()) focusComposerStable();
+      }),
+    [focusComposerStable, isBackgroundThread],
+  );
   const scheduleComposerFocus = () => {
     window.requestAnimationFrame(() => {
       focusComposer();
@@ -2055,16 +2077,23 @@ export default function ChatView(props: ChatViewProps) {
     setTimelineAnchor,
   });
 
-  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- schedules a frame to focus the composer DOM element when a thread opens with the terminal closed
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- schedules a frame to focus the composer DOM element when a thread opens, or its split pane takes focus, with the terminal closed
   useEffect(() => {
-    if (!activeThread?.id || terminalUiState.terminalOpen) return;
+    if (!activeThread?.id || terminalUiState.terminalOpen || isBackgroundThread()) return;
+    if (!splitPane.takeFocus) return;
     const frame = window.requestAnimationFrame(() => {
       focusComposerStable();
     });
     return () => {
       window.cancelAnimationFrame(frame);
     };
-  }, [activeThread?.id, focusComposerStable, terminalUiState.terminalOpen]);
+  }, [
+    activeThread?.id,
+    focusComposerStable,
+    isBackgroundThread,
+    splitPane.takeFocus,
+    terminalUiState.terminalOpen,
+  ]);
 
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- window focus listener that refocuses the composer after the window regains focus
   useEffect(() => {
@@ -2076,6 +2105,7 @@ export default function ChatView(props: ChatViewProps) {
       frame = window.requestAnimationFrame(() => {
         frame = window.requestAnimationFrame(() => {
           frame = null;
+          if (isBackgroundThread()) return;
           if (document.querySelector("[data-mcp-app-fullscreen]") !== null) return;
           if (shouldRefocusComposerOnWindowFocus(document.activeElement)) focusComposerStable();
         });
@@ -2086,7 +2116,13 @@ export default function ChatView(props: ChatViewProps) {
       window.removeEventListener("focus", onWindowFocus);
       if (frame !== null) window.cancelAnimationFrame(frame);
     };
-  }, [activeThread?.id, focusComposerStable, isMobileViewport, terminalUiState.terminalOpen]);
+  }, [
+    activeThread?.id,
+    focusComposerStable,
+    isBackgroundThread,
+    isMobileViewport,
+    terminalUiState.terminalOpen,
+  ]);
 
   // Promotion drops draftId while a send may still be dispatching, so key by thread.
   const [localDispatchThreadId, setLocalDispatchThreadId] = useState(threadId);
@@ -2529,8 +2565,9 @@ export default function ChatView(props: ChatViewProps) {
   // composer effect above.
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- focuses the open drawer terminal when entering a thread
   useEffect(() => {
-    if (activeThreadRef) return focusTerminalOnThreadEnter(activeThreadRef);
-  }, [activeThreadRef]);
+    if (activeThreadRef && !isBackgroundThread())
+      return focusTerminalOnThreadEnter(activeThreadRef);
+  }, [activeThreadRef, isBackgroundThread]);
 
   const getShortcutContext = (eventTarget: EventTarget | null = document.activeElement) => ({
     terminalFocus: getTerminalFocusOwner() !== null,
@@ -2610,12 +2647,13 @@ export default function ChatView(props: ChatViewProps) {
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- subscribes to desktop bridge menu actions that toggle the right panel
   useEffect(() => {
     return window.desktopBridge?.onMenuAction((action) => {
+      if (isBackgroundThread()) return;
       if (action === "rightPanel.toggle") toggleRightPanelStable();
       else if (action === "rightPanel.toggleMaximized") toggleRightPanelMaximizedStable();
     });
-  }, [toggleRightPanelStable, toggleRightPanelMaximizedStable]);
+  }, [isBackgroundThread, toggleRightPanelStable, toggleRightPanelMaximizedStable]);
 
-  usePasteToFocusComposer(activeThreadId, composerRef);
+  usePasteToFocusComposer(backgroundThread ? null : activeThreadId, composerRef);
   const { onConfirmRevertStable, onForkFromRunStable, onRevertTimelineTurnStable } =
     useTimelineRewind({
       environmentId,
@@ -3082,7 +3120,8 @@ export default function ChatView(props: ChatViewProps) {
     />
   );
   const threadPanelHeaderControl = <ThreadPanelHeaderControl {...panelToggleControlProps} />;
-  const panelLayoutControls = (
+  // The controls sit at the window corner, so only the focused pane draws them.
+  const panelLayoutControls = splitPane.focused ? (
     <WorkspaceTitlebarControls
       showMaximizeControl={!shouldUsePlanSidebarSheet}
       rightPanelOpen={rightPanelOpen}
@@ -3092,7 +3131,7 @@ export default function ChatView(props: ChatViewProps) {
     >
       {panelToggleControls}
     </WorkspaceTitlebarControls>
-  );
+  ) : null;
   const workspaceFileDropHandlers = makeWorkspaceFileDropHandlers({
     setDragActive: setIsWorkspaceFileDragActive,
     addFiles: addDroppedFilesToComposer,
@@ -3128,11 +3167,12 @@ export default function ChatView(props: ChatViewProps) {
               ? cn(
                   "drag-region flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center px-3 sm:px-5",
                   reserveTitleBarControlInset &&
+                    splitPane.last &&
                     !inlineRightPanelOwnsTitleBar &&
                     "wco:pr-(--workspace-native-controls-inset)",
                 )
               : "flex h-[var(--workspace-topbar-height)] min-h-[var(--workspace-topbar-height)] shrink-0 items-center pl-(--workspace-gutter-start) pr-(--workspace-gutter-end)",
-            COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
+            splitPane.first && COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS,
           )}
         >
           {isElectron && rightPanelControlsAtRoot ? (
@@ -3143,6 +3183,19 @@ export default function ChatView(props: ChatViewProps) {
           ) : null}
           {!rightPanelControlsAtRoot && !rightPanelControlsInPanel ? panelLayoutControls : null}
           {inlineRightPanelOwnsTitleBar ? threadPanelHeaderControl : null}
+          {splitPane.onClose ? (
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label="Close pane"
+              title="Close pane"
+              data-split-pane-close
+              className="me-1.5 shrink-0 [-webkit-app-region:no-drag]"
+              onClick={splitPane.onClose}
+            >
+              <XIcon />
+            </Button>
+          ) : null}
           <ChatHeader
             activeThreadEnvironmentId={activeThread.environmentId}
             activeThreadId={activeThread.id}

@@ -54,7 +54,11 @@ describe("useThreadContextDrop", () => {
     const target = screen.container.querySelector("[data-drop-target]");
     expect(target).not.toBeNull();
     await act(() => {
-      target!.dispatchEvent(new CustomEvent(THREAD_CONTEXT_DROP_EVENT, { detail: [dropped] }));
+      target!.dispatchEvent(
+        new CustomEvent(THREAD_CONTEXT_DROP_EVENT, {
+          detail: { threads: [dropped], side: "after" },
+        }),
+      );
     });
 
     expect(drafts.get("thread-b")).toEqual(["thread-dropped"]);
@@ -73,7 +77,10 @@ describe("useThreadContextDrop", () => {
     await act(() => {
       target!.dispatchEvent(
         new CustomEvent(THREAD_CONTEXT_DROP_EVENT, {
-          detail: [{ environmentId: ENVIRONMENT_ID, threadId: "thread-dropped" as ThreadId }],
+          detail: {
+            threads: [{ environmentId: ENVIRONMENT_ID, threadId: "thread-dropped" as ThreadId }],
+            side: "after",
+          },
         }),
       );
     });

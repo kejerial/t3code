@@ -10,7 +10,11 @@ import {
   deleteSelectedThreadEntries,
   getFallbackThreadIdAfterDelete,
   hasUnseenCompletion,
-  resolveSidebarRowThreadId,
+  buildSidebarThreadTree,
+  filterSidebarV2VisibleThreads,
+  resolveSidebarRowThreadKey,
+  sidebarChildRows,
+  sidebarRootThreadKey,
   orderItemsByPreferredIds,
   pinOrderKeyBetween,
   resolveProjectStatusIndicator,
@@ -168,45 +172,158 @@ describe("archiveSelectedThreadEntries", () => {
   });
 });
 
-describe("sidebar thread lineage helpers", () => {
-  it("maps an open subagent to its nearest visible ancestor's sidebar row", () => {
-    const environmentId = EnvironmentId.make("environment-row");
-    const otherEnvironmentId = EnvironmentId.make("environment-other");
-    const subagentOf = (id: string, parentId: ThreadId, environment = environmentId) =>
-      makeThreadFixture({
-        id: ThreadId.make(id),
-        environmentId: environment,
-        lineage: {
-          rootThreadId: parentId,
-          parentThreadId: parentId,
-          relationshipToParent: "subagent",
-        },
-      });
-    const root = makeThreadFixture({ id: ThreadId.make("thread-root"), environmentId });
-    const fork = makeThreadFixture({
-      id: ThreadId.make("thread-fork"),
+describe("buildSidebarThreadTree", () => {
+  const environmentId = EnvironmentId.make("environment-row");
+  const otherEnvironmentId = EnvironmentId.make("environment-other");
+  const key = (thread: Thread) => `${thread.environmentId}:${thread.id}`;
+  const subagentOf = (
+    id: string,
+    parentId: ThreadId,
+    overrides: Parameters<typeof makeThreadFixture>[0] = {},
+  ) =>
+    makeThreadFixture({
+      id: ThreadId.make(id),
       environmentId,
       lineage: {
-        rootThreadId: root.id,
-        parentThreadId: root.id,
-        relationshipToParent: "fork",
+        rootThreadId: parentId,
+        parentThreadId: parentId,
+        relationshipToParent: "subagent",
       },
+      ...overrides,
     });
-    const child = subagentOf("thread-child", root.id);
-    const grandchild = subagentOf("thread-grandchild", child.id);
-    const forkChild = subagentOf("thread-fork-child", fork.id);
-    const orphan = subagentOf("thread-orphan", ThreadId.make("thread-missing"));
-    const elsewhere = subagentOf("thread-elsewhere", root.id, otherEnvironmentId);
-    const threads = [root, fork, child, grandchild, forkChild, orphan, elsewhere];
+  const root = makeThreadFixture({ id: ThreadId.make("thread-root"), environmentId });
+  const fork = makeThreadFixture({
+    id: ThreadId.make("thread-fork"),
+    environmentId,
+    lineage: { rootThreadId: root.id, parentThreadId: root.id, relationshipToParent: "fork" },
+  });
+  const laterChild = subagentOf("thread-child-b", root.id, {
+    createdAt: "2026-02-02T00:00:00.000Z",
+  });
+  const child = subagentOf("thread-child-a", root.id, { createdAt: "2026-02-01T00:00:00.000Z" });
+  const grandchild = subagentOf("thread-grandchild", child.id);
+  const delegated = makeThreadFixture({
+    id: ThreadId.make("thread-delegated"),
+    environmentId: otherEnvironmentId,
+    delegatedFrom: { environmentId, threadId: root.id, title: "Root" },
+  });
+  const otherProject = subagentOf("thread-other-project", root.id, {
+    projectId: ProjectId.make("project-elsewhere"),
+  });
+  const launched: Thread = {
+    ...makeThreadFixture({
+      id: ThreadId.make("thread-launched"),
+      environmentId,
+      projectId: ProjectId.make("project-launched"),
+      createdAt: "2026-02-03T00:00:00.000Z",
+    }),
+    launchedByThreadId: root.id,
+  };
+  const launchedByMissing: Thread = {
+    ...makeThreadFixture({ id: ThreadId.make("thread-launched-orphan"), environmentId }),
+    launchedByThreadId: ThreadId.make("thread-missing"),
+  };
+  const orphan = subagentOf("thread-orphan", ThreadId.make("thread-missing"));
+  const archivedParent = makeThreadFixture({
+    id: ThreadId.make("thread-archived"),
+    environmentId,
+    archivedAt: "2026-03-01T00:00:00.000Z",
+  });
+  const childOfArchived = subagentOf("thread-child-of-archived", archivedParent.id);
+  const providerChild: Thread = {
+    ...subagentOf("thread-provider-child", root.id),
+    creationSource: "provider",
+  };
+  const threads = [
+    root,
+    fork,
+    laterChild,
+    child,
+    grandchild,
+    delegated,
+    otherProject,
+    launched,
+    launchedByMissing,
+    orphan,
+    archivedParent,
+    childOfArchived,
+    providerChild,
+  ];
 
-    expect(resolveSidebarRowThreadId(child.id, environmentId, threads)).toBe(root.id);
-    expect(resolveSidebarRowThreadId(grandchild.id, environmentId, threads)).toBe(root.id);
-    expect(resolveSidebarRowThreadId(forkChild.id, environmentId, threads)).toBe(fork.id);
-    expect(resolveSidebarRowThreadId(elsewhere.id, otherEnvironmentId, threads)).toBe(elsewhere.id);
-    expect(resolveSidebarRowThreadId(orphan.id, environmentId, threads)).toBe(orphan.id);
+  it("nests subagents, delegated tasks and launched threads under listed parents, oldest first", () => {
+    const tree = buildSidebarThreadTree(threads);
+
+    expect(tree.childrenByParentKey.get(key(root))?.map((thread) => thread.id)).toEqual([
+      delegated.id,
+      otherProject.id,
+      child.id,
+      laterChild.id,
+      launched.id,
+    ]);
+    expect(tree.childrenByParentKey.get(key(child))?.map((thread) => thread.id)).toEqual([
+      grandchild.id,
+    ]);
+    expect([...tree.crossProjectKeys].toSorted()).toEqual(
+      [key(delegated), key(otherProject), key(launched)].toSorted(),
+    );
+    // Forks are the user's own threads; orphaned and archived-parent children keep
+    // top-level rows. Provider-native children get no row at all.
+    expect(
+      filterSidebarV2VisibleThreads(threads, null, tree.parentKeyByKey).map((thread) => thread.id),
+    ).toEqual([root.id, fork.id, launchedByMissing.id, orphan.id, childOfArchived.id]);
+  });
+
+  it("lists children depth first and skips what a collapsed parent hides", () => {
+    const tree = buildSidebarThreadTree(threads);
+    const rows = (collapsed: ReadonlySet<string>) =>
+      sidebarChildRows(tree, key(root), collapsed).map((row) => [row.thread.id, row.depth]);
+
+    expect(rows(new Set())).toEqual([
+      [delegated.id, 1],
+      [otherProject.id, 1],
+      [child.id, 1],
+      [grandchild.id, 2],
+      [laterChild.id, 1],
+      [launched.id, 1],
+    ]);
+    expect(rows(new Set([key(child)]))).toEqual([
+      [delegated.id, 1],
+      [otherProject.id, 1],
+      [child.id, 1],
+      [laterChild.id, 1],
+      [launched.id, 1],
+    ]);
+    expect(rows(new Set([key(root)]))).toEqual([]);
+  });
+
+  it("opens a thread on its own row unless a collapsed ancestor hides it", () => {
+    const tree = buildSidebarThreadTree(threads);
+
+    expect(resolveSidebarRowThreadKey(key(grandchild), tree, new Set())).toBe(key(grandchild));
+    expect(resolveSidebarRowThreadKey(key(grandchild), tree, new Set([key(child)]))).toBe(
+      key(child),
+    );
+    expect(
+      resolveSidebarRowThreadKey(key(grandchild), tree, new Set([key(root), key(child)])),
+    ).toBe(key(root));
+    expect(resolveSidebarRowThreadKey(key(orphan), tree, new Set())).toBe(key(orphan));
+    expect(resolveSidebarRowThreadKey(key(providerChild), tree, new Set())).toBe(key(root));
+    expect(sidebarRootThreadKey(key(grandchild), tree)).toBe(key(root));
+  });
+
+  it("gives a parent loop a top-level row", () => {
     const loopA = subagentOf("thread-loop-a", ThreadId.make("thread-loop-b"));
     const loopB = subagentOf("thread-loop-b", loopA.id);
-    expect(resolveSidebarRowThreadId(loopA.id, environmentId, [loopA, loopB])).toBe(loopA.id);
+    const tree = buildSidebarThreadTree([loopA, loopB]);
+
+    expect(
+      filterSidebarV2VisibleThreads([loopA, loopB], null, tree.parentKeyByKey).map(
+        (thread) => thread.id,
+      ),
+    ).toEqual([loopA.id]);
+    expect(sidebarChildRows(tree, key(loopA), new Set()).map((row) => row.thread.id)).toEqual([
+      loopB.id,
+    ]);
   });
 });
 
@@ -854,9 +971,12 @@ describe("sortSidebarV2ProjectGroups", () => {
     ];
 
     expect(
-      sortSidebarV2ProjectGroups(projects, threads, "updated_at", new Set()).map(
-        (project) => project.projectKey,
-      ),
+      sortSidebarV2ProjectGroups(
+        projects,
+        threads,
+        "updated_at",
+        buildSidebarThreadTree(threads).parentKeyByKey,
+      ).map((project) => project.projectKey),
     ).toEqual(["logical-newer", "logical-older"]);
   });
 });
@@ -1302,7 +1422,7 @@ describe("resolveSidebarRouteReveal", () => {
         routeKey: hiddenKey,
         isSearching: false,
         scopedProjectKeys,
-        delegatedUnderParent: new Set(),
+        nestedKeys: new Set(),
         findThread,
       }),
     ).toEqual({ pendingKey: hiddenKey, widensScope: true });
@@ -1316,7 +1436,7 @@ describe("resolveSidebarRouteReveal", () => {
         routeKey: hiddenKey,
         isSearching: false,
         scopedProjectKeys,
-        delegatedUnderParent: new Set(),
+        nestedKeys: new Set(),
         findThread,
       }),
     ).toEqual({ pendingKey: null, widensScope: false });
@@ -1332,7 +1452,7 @@ describe("resolveSidebarRouteReveal", () => {
         routeKey,
         isSearching: false,
         scopedProjectKeys,
-        delegatedUnderParent: new Set(),
+        nestedKeys: new Set(),
         findThread,
       });
     resolve("environment-test:unlisted");
@@ -1346,7 +1466,7 @@ describe("resolveSidebarRouteReveal", () => {
         routeKey: hiddenKey,
         isSearching: true,
         scopedProjectKeys,
-        delegatedUnderParent: new Set(),
+        nestedKeys: new Set(),
         findThread,
       }),
     ).toEqual({ pendingKey: hiddenKey, widensScope: false });

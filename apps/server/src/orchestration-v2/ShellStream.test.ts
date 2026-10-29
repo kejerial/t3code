@@ -155,6 +155,7 @@ describe("omitIdleSubagentShells", () => {
         relationshipToParent: parent === null ? null : "subagent",
         rootThreadId: ThreadId.make("root"),
       },
+      creationSource: parent === null ? "web" : "provider",
       status: "completed",
       activityRunStatus: null,
       pendingRuntimeRequest: null,
@@ -162,10 +163,12 @@ describe("omitIdleSubagentShells", () => {
       ...overrides,
     });
 
-  it("drops idle leaf children but keeps live ones and the middle of nested chains", () => {
+  it("drops idle provider leaf children but keeps live, delegated, and mid-chain ones", () => {
     const threads = [
       row("root", null),
       row("idle", "root"),
+      // A delegate_task child has a sidebar row under its parent, so it stays while idle.
+      row("delegated", "root", { creationSource: "mcp" }),
       row("running", "root", { activityRunStatus: "running" }),
       row("queued", "root", { status: "queued" }),
       row("asking", "root", {
@@ -184,6 +187,7 @@ describe("omitIdleSubagentShells", () => {
     ];
     expect(omitIdleSubagentShells(threads).map((thread) => thread.id)).toEqual([
       "root",
+      "delegated",
       "running",
       "queued",
       "asking",
@@ -262,24 +266,26 @@ describe("omitOlderSettledShells", () => {
     expect(result.olderSettled.counts).toEqual([]);
   });
 
-  it("keeps older rows that are snoozed, live, or above a kept subagent, and still counts them", () => {
+  it("keeps older rows that are snoozed, live, or above a live subagent, and still counts them", () => {
+    const child = (id: string, parent: string, overrides: Partial<OrchestrationV2ThreadShell>) =>
+      row(id, null, {
+        lineage: {
+          parentThreadId: ThreadId.make(parent),
+          relationshipToParent: "subagent",
+          rootThreadId: ThreadId.make(parent),
+        },
+        ...overrides,
+      });
     const threads = [
       ...newest,
       row("snoozed", 30, { snoozedUntil: DateTime.makeUnsafe(101 * DAY) }),
       row("woke", 30, { snoozedUntil: DateTime.makeUnsafe(99 * DAY) }),
       row("running", 30, { activityRunStatus: "running" }),
       row("parent", 30),
-      shellFixture({
-        id: ThreadId.make("child"),
-        projectId: ProjectId.make("project-a"),
-        lineage: {
-          parentThreadId: ThreadId.make("parent"),
-          relationshipToParent: "subagent",
-          rootThreadId: ThreadId.make("parent"),
-        },
-        settledOverride: null,
-        settledAt: null,
-      }),
+      child("child", "parent", { activityRunStatus: "running" }),
+      // An idle delegated child does not hold its old parent, and leaves with it.
+      row("delegator", 30),
+      child("delegated", "delegator", { creationSource: "mcp" }),
     ];
     const result = omit(threads);
     expect(result.threads.map((thread) => thread.id).slice(25)).toEqual([
@@ -288,7 +294,7 @@ describe("omitOlderSettledShells", () => {
       "parent",
       "child",
     ]);
-    expect(result.olderSettled.counts).toEqual([{ projectId: "project-a", count: 4 }]);
+    expect(result.olderSettled.counts).toEqual([{ projectId: "project-a", count: 5 }]);
   });
 });
 
