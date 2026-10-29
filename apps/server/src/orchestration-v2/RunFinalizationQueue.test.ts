@@ -5,6 +5,8 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 
 import * as SqlitePersistence from "../persistence/Sqlite.ts";
+import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import * as VcsStatusBroadcaster from "../vcs/VcsStatusBroadcaster.ts";
@@ -48,6 +50,12 @@ it.effect.each([
     Layer.provide(
       Layer.mergeAll(
         projections,
+        Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
+          getInstance: () => Effect.undefined,
+        }),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({
+          refreshInstance: () => Effect.succeed([]),
+        }),
         Layer.mock(WorkspaceEntries.WorkspaceEntries)({ refresh: () => Effect.void }),
         Layer.mock(PullRequestService.PullRequestService)({ refreshAfterTurn: () => Effect.void }),
         Layer.mock(VcsStatusBroadcaster.VcsStatusBroadcaster)({

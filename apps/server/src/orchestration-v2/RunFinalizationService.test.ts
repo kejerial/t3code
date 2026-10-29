@@ -1,13 +1,20 @@
 import { assert, it } from "@effect/vitest";
 import {
   CheckpointScopeId,
+  ProjectId,
+  ProviderInstanceId,
   RunId,
   ThreadId,
   type OrchestrationV2ThreadShell,
 } from "@t3tools/contracts";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Queue from "effect/Queue";
+import * as TestClock from "effect/testing/TestClock";
 
+import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as VcsStatusBroadcaster from "../vcs/VcsStatusBroadcaster.ts";
 import * as WorkspaceEntries from "../workspace/WorkspaceEntries.ts";
@@ -98,6 +105,12 @@ it.effect.each(
   const layer = RunFinalization.layerObserver.pipe(
     Layer.provide(
       Layer.mergeAll(
+        Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
+          getInstance: () => Effect.undefined,
+        }),
+        Layer.mock(ProviderRegistry.ProviderRegistry)({
+          refreshInstance: () => Effect.succeed([]),
+        }),
         Layer.mock(WorkspaceEntries.WorkspaceEntries)({ refresh: () => Effect.void }),
         Layer.mock(PullRequestService.PullRequestService)({
           refreshAfterTurn: () => Effect.void,
@@ -137,3 +150,52 @@ it.effect.each(
     assert.deepEqual(refreshed, [...scenario.expected]);
   }).pipe(Effect.provide(layer));
 });
+
+it.effect("refreshes the run's account usage after a turn, once per burst", () =>
+  Effect.gen(function* () {
+    const refreshed = yield* Queue.unbounded<string>();
+    const invalidated: string[] = [];
+    const layer = RunFinalization.layerObserver.pipe(
+      Layer.provide(
+        Layer.mergeAll(
+          Layer.mock(ProviderInstanceRegistry.ProviderInstanceRegistry)({
+            getInstance: (id) =>
+              Effect.succeed({
+                invalidateCaches: Effect.sync(() => {
+                  invalidated.push(id);
+                }),
+              } as never),
+          }),
+          Layer.mock(ProviderRegistry.ProviderRegistry)({
+            refreshInstance: (id) => Queue.offer(refreshed, id).pipe(Effect.as([])),
+          }),
+          Layer.mock(PullRequestService.PullRequestService)({
+            refreshAfterTurn: () => Effect.void,
+          }),
+          Layer.mock(WorkspaceEntries.WorkspaceEntries)({}),
+          Layer.mock(VcsStatusBroadcaster.VcsStatusBroadcaster)({}),
+          Layer.mock(ProjectionStore.ProjectionStoreV2)({}),
+        ),
+      ),
+    );
+    yield* Effect.gen(function* () {
+      const observer = yield* RunFinalization.RunFinalizationObserver;
+      const turnEnd = (account: string) =>
+        observer.refreshAfterTurn({
+          projectId: ProjectId.make("project"),
+          providerInstanceId: ProviderInstanceId.make(account),
+        });
+      yield* turnEnd("claude_a");
+      yield* turnEnd("claude_a");
+      yield* turnEnd("claude_b");
+      assert.deepEqual(
+        [yield* Queue.take(refreshed), yield* Queue.take(refreshed)],
+        ["claude_a", "claude_b"],
+      );
+      yield* TestClock.adjust(Duration.seconds(30));
+      yield* turnEnd("claude_a");
+      assert.equal(yield* Queue.take(refreshed), "claude_a");
+      assert.deepEqual(invalidated, ["claude_a", "claude_b", "claude_a"]);
+    }).pipe(Effect.provide(layer));
+  }),
+);

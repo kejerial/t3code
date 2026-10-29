@@ -1,9 +1,19 @@
-import { CheckpointScopeId, ProjectId, RunId, ThreadId } from "@t3tools/contracts";
+import {
+  CheckpointScopeId,
+  ProjectId,
+  ProviderInstanceId,
+  RunId,
+  ThreadId,
+} from "@t3tools/contracts";
+import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 
+import * as ProviderInstanceRegistry from "../provider/ProviderInstanceRegistry.ts";
+import * as ProviderRegistry from "../provider/ProviderRegistry.ts";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as VcsStatusBroadcaster from "../vcs/VcsStatusBroadcaster.ts";
 import * as WorkspaceEntries from "../workspace/WorkspaceEntries.ts";
@@ -27,7 +37,10 @@ export class RunFinalizationRefreshError extends Schema.TaggedError<RunFinalizat
 ) {}
 
 export class RunFinalizationObserver extends Context.Reference<{
-  readonly refreshAfterTurn: (projectId: ProjectId) => Effect.Effect<void>;
+  readonly refreshAfterTurn: (input: {
+    readonly projectId: ProjectId;
+    readonly providerInstanceId: ProviderInstanceId;
+  }) => Effect.Effect<void>;
   readonly refresh: (input: {
     readonly cwd: string;
     readonly threadId: ThreadId;
@@ -89,6 +102,8 @@ const make = Effect.gen(function* () {
 
 export const layer = Layer.effect(RunFinalizationService, make);
 
+const USAGE_REFRESH_MIN_INTERVAL_MS = 30_000;
+
 export const layerObserver = Layer.effect(
   RunFinalizationObserver,
   Effect.gen(function* () {
@@ -96,8 +111,43 @@ export const layerObserver = Layer.effect(
     const vcsStatus = yield* VcsStatusBroadcaster.VcsStatusBroadcaster;
     const projections = yield* ProjectionStore.ProjectionStoreV2;
     const pullRequests = yield* PullRequestService.PullRequestService;
+    const providerInstances = yield* ProviderInstanceRegistry.ProviderInstanceRegistry;
+    const providerRegistry = yield* ProviderRegistry.ProviderRegistry;
+    const layerScope = yield* Effect.scope;
+    const usageRefreshedAt = yield* Ref.make(new Map<ProviderInstanceId, number>());
+    const refreshUsage = Effect.fn("RunFinalizationService.refreshUsage")(function* (
+      instanceId: ProviderInstanceId,
+    ) {
+      const instance = yield* providerInstances.getInstance(instanceId);
+      yield* instance?.invalidateCaches ?? Effect.void;
+      yield* providerRegistry.refreshInstance(instanceId);
+    });
     return {
-      refreshAfterTurn: pullRequests.refreshAfterTurn,
+      refreshAfterTurn: Effect.fn("RunFinalizationService.refreshAfterTurn")(function* ({
+        projectId,
+        providerInstanceId,
+      }) {
+        yield* pullRequests.refreshAfterTurn(projectId);
+        const now = yield* Clock.currentTimeMillis;
+        // Each refresh probes the account, so a burst of finishing subagents shares one.
+        const due = yield* Ref.modify(usageRefreshedAt, (refreshedAt) => {
+          const last = refreshedAt.get(providerInstanceId);
+          return last !== undefined && now - last < USAGE_REFRESH_MIN_INTERVAL_MS
+            ? [false, refreshedAt]
+            : [true, new Map(refreshedAt).set(providerInstanceId, now)];
+        });
+        if (!due) return;
+        // Forked: the probe must not delay the next queued turn.
+        yield* refreshUsage(providerInstanceId).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logWarning("failed to refresh provider usage after turn", {
+              providerInstanceId,
+              cause,
+            }),
+          ),
+          Effect.forkIn(layerScope),
+        );
+      }),
       refresh: Effect.fn("RunFinalizationService.refresh")(
         function* ({ cwd, threadId, runId }) {
           const [, local] = yield* Effect.all(
