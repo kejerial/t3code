@@ -95,6 +95,19 @@ export const DesktopThemeSchema = Schema.Literals(["light", "dark", "system"]);
 export const DesktopUpdateChannelSchema = Schema.Literals(["latest", "nightly"]);
 export const DesktopAppStageLabelSchema = Schema.Literals(["Alpha", "Beta", "Dev", "Nightly"]);
 
+export const APP_BASE_NAME = "Kode";
+
+// Beta and Latest are the default channels, so only Dev and Nightly builds carry a suffix.
+export function formatAppDisplayName(input: {
+  readonly baseName: string;
+  readonly stageLabel: string;
+}): string {
+  const stage = input.stageLabel.trim().toLowerCase();
+  return stage === "beta" || stage === "latest"
+    ? input.baseName
+    : `${input.baseName} (${input.stageLabel})`;
+}
+
 export interface DesktopAppBranding {
   baseName: string;
   stageLabel: DesktopAppStageLabel;
