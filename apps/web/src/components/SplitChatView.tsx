@@ -4,21 +4,25 @@ import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 
 import { useMediaQuery } from "../hooks/useMediaQuery";
+import { closeSideChat } from "../lib/sideChat";
 import { cn } from "../lib/utils";
 import {
   PRIMARY_SPLIT_PANE_ID,
   SPLIT_VIEW_MAX_PANES,
   closeSplitViewPane,
+  isAsidePane,
   openSplitViewPane,
   reconcileSplitViewLayout,
   resizeSplitViewPanes,
   useSplitViewStore,
   type SplitViewLayout,
+  type SplitViewPane,
 } from "../splitViewStore";
 import { buildThreadRouteParams, type ThreadRouteTarget } from "../threadRoutes";
 import { BackgroundThreadContext, SplitPaneContext } from "./chat/backgroundThread";
 import { threadContextDropTargetProps, useThreadContextDrop } from "./chat/threadContextDrag";
 import { ThreadRouteView } from "./ThreadRouteView";
+import { Sheet, SheetPopup } from "./ui/sheet";
 import { SidebarInset } from "./ui/sidebar";
 
 const PANE_MIN_WIDTH_PX = 320;
@@ -27,18 +31,27 @@ const KEYBOARD_RESIZE_STEP = 0.05;
 interface ShownPane {
   readonly id: string;
   readonly target: ThreadRouteTarget;
+  readonly aside: boolean;
 }
 
 function focusedPaneId(layout: SplitViewLayout): string {
-  return layout.panes.some((pane) => pane.id === layout.focusedId)
+  const regular = layout.panes.filter((pane) => !isAsidePane(pane));
+  return regular.some((pane) => pane.id === layout.focusedId)
     ? layout.focusedId!
-    : (layout.panes[0]?.id ?? PRIMARY_SPLIT_PANE_ID);
+    : (regular[0]?.id ?? PRIMARY_SPLIT_PANE_ID);
+}
+
+/** Side chats the layout no longer shows are throwaway threads, so leaving the split deletes them. */
+function asidesDropped(from: SplitViewLayout, to: SplitViewLayout): SplitViewPane[] {
+  const kept = new Set(to.panes.map((pane) => scopedThreadKey(pane.thread)));
+  return from.panes.filter((pane) => isAsidePane(pane) && !kept.has(scopedThreadKey(pane.thread)));
 }
 
 /**
  * Up to three chats side by side. The routed thread is always the focused pane, so the URL and
- * sidebar highlight follow focus. Below `lg` only the focused pane shows and drops navigate.
- * `background` keeps the chats mounted, inert and in place under Settings or Usage.
+ * sidebar highlight follow focus. Below `lg` only the focused pane shows and drops navigate;
+ * a side chat pane shows as a sheet there. `background` keeps the chats mounted, inert and in
+ * place under Settings or Usage.
  */
 export function SplitChatView({
   target,
@@ -55,7 +68,9 @@ export function SplitChatView({
     target.kind === "server" ? reconcileSplitViewLayout(stored, target.threadRef) : stored;
   // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- persists the layout after a navigation from outside the split (sidebar, palette, links) moved the routed thread
   useEffect(() => {
-    if (layout !== stored) setLayout(layout);
+    if (layout === stored) return;
+    setLayout(layout);
+    for (const pane of asidesDropped(stored, layout)) void closeSideChat(pane.thread);
   }, [layout, setLayout, stored]);
 
   const focusedId = focusedPaneId(layout);
@@ -68,13 +83,17 @@ export function SplitChatView({
   }
   const allPanes: ShownPane[] =
     layout.panes.length === 0
-      ? [{ id: PRIMARY_SPLIT_PANE_ID, target }]
+      ? [{ id: PRIMARY_SPLIT_PANE_ID, target, aside: false }]
       : layout.panes.map((pane) => ({
           id: pane.id,
           target: pane.id === focusedId ? target : { kind: "server", threadRef: pane.thread },
+          aside: isAsidePane(pane),
         }));
   const panes = splitEnabled ? allPanes : allPanes.filter((pane) => pane.id === focusedId);
   const sizes = splitEnabled && layout.panes.length > 0 ? layout.sizes : panes.map(() => 1);
+  // Under Settings or Usage the sheet would cover the page, so the side chat waits there.
+  const sheetAside = splitEnabled || background ? undefined : allPanes.find((pane) => pane.aside);
+  const regularCount = allPanes.filter((pane) => !pane.aside).length;
 
   const openThread = (thread: ScopedThreadRef) =>
     void navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(thread) });
@@ -89,6 +108,10 @@ export function SplitChatView({
     const { layout: next, focus } = closeSplitViewPane(layout, id);
     setLayout(next);
     if (focus) openThread(focus);
+  };
+  const closeAside = (pane: ShownPane) => {
+    closePane(pane.id);
+    if (pane.target.kind === "server") void closeSideChat(pane.target.threadRef);
   };
   const dropOnPane = (
     index: number,
@@ -175,7 +198,7 @@ export function SplitChatView({
               count={panes.length}
               index={index}
               focused={focused}
-              takeFocus={focused && userFocus?.paneId !== pane.id}
+              takeFocus={pane.aside || (focused && userFocus?.paneId !== pane.id)}
               background={background}
               full={layout.panes.length >= SPLIT_VIEW_MAX_PANES}
               splitEnabled={splitEnabled}
@@ -184,12 +207,50 @@ export function SplitChatView({
                 else paneElements.current.delete(pane.id);
               }}
               onFocus={() => focusPane(pane)}
-              onClose={() => closePane(pane.id)}
+              onClose={
+                pane.aside
+                  ? () => closeAside(pane)
+                  : regularCount > 1
+                    ? () => closePane(pane.id)
+                    : null
+              }
+              onMissing={() => closePane(pane.id)}
               onDrop={(threads, side) => dropOnPane(index, threads, side)}
             />,
           ];
         })}
       </div>
+      {sheetAside ? (
+        <Sheet
+          open
+          onOpenChange={(open) => {
+            if (!open) closeAside(sheetAside);
+          }}
+        >
+          <SheetPopup
+            side="right"
+            showCloseButton={false}
+            className="h-full w-[calc(100%-(--spacing(8)))] max-w-lg"
+          >
+            <SplitPane
+              pane={sheetAside}
+              size={1}
+              count={1}
+              index={0}
+              focused={false}
+              takeFocus
+              background={background}
+              full={false}
+              splitEnabled={false}
+              register={noop}
+              onFocus={noop}
+              onClose={() => closeAside(sheetAside)}
+              onMissing={() => closePane(sheetAside.id)}
+              onDrop={noop}
+            />
+          </SheetPopup>
+        </Sheet>
+      ) : null}
     </SidebarInset>
   );
 }
@@ -207,6 +268,7 @@ function SplitPane({
   register,
   onFocus,
   onClose,
+  onMissing,
   onDrop,
 }: {
   pane: ShownPane;
@@ -220,7 +282,8 @@ function SplitPane({
   splitEnabled: boolean;
   register: (element: HTMLDivElement | null) => void;
   onFocus: () => void;
-  onClose: () => void;
+  onClose: (() => void) | null;
+  onMissing: () => void;
   onDrop: (threads: ReadonlyArray<ScopedThreadRef>, side: "before" | "after") => void;
 }) {
   const dropRef = useRef<HTMLDivElement | null>(null);
@@ -242,15 +305,27 @@ function SplitPane({
       className="group/split-pane relative flex min-h-0 min-w-0 basis-0 flex-col"
       style={{ flexGrow: size }}
       // Only the user's own input moves focus here; a stray programmatic focus must not reroute.
+      // A side chat never takes focus: it is not a route.
       onPointerDownCapture={
-        focused
+        focused || pane.aside
           ? undefined
           : (event) => {
               // Closing a pane in the background leaves focus where it is.
               if (!(event.target as Element).closest("[data-split-pane-close]")) onFocus();
             }
       }
-      onKeyDownCapture={focused ? undefined : onFocus}
+      onKeyDownCapture={focused || pane.aside ? undefined : onFocus}
+      // In the sheet the dialog itself closes on Escape.
+      onKeyDown={
+        pane.aside && onClose && splitEnabled
+          ? (event) => {
+              if (event.key !== "Escape" || event.defaultPrevented || event.nativeEvent.isComposing)
+                return;
+              event.preventDefault();
+              onClose();
+            }
+          : undefined
+      }
       {...threadContextDropTargetProps()}
     >
       <BackgroundThreadContext value={background || !focused}>
@@ -261,13 +336,14 @@ function SplitPane({
             first: index === 0,
             last: index === count - 1,
             takeFocus,
-            onClose: count > 1 ? onClose : null,
+            aside: pane.aside,
+            onClose,
           }}
         >
           <ThreadRouteView
             target={pane.target}
             routed={focused && !background}
-            onMissing={focused ? noop : onClose}
+            onMissing={focused ? noop : onMissing}
           />
         </SplitPaneContext>
       </BackgroundThreadContext>
