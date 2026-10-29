@@ -112,12 +112,12 @@ function ExpandedAccount({
             className="size-1.5 shrink-0 self-center rounded-full"
             style={{ backgroundColor: barColor(account.driver) }}
           />
-          <span className="truncate font-medium text-sidebar-foreground">{account.label}</span>
-          {account.plan ? (
-            <span className="truncate text-sidebar-muted-foreground">{account.plan}</span>
-          ) : null}
+          <span className="shrink-0 font-medium text-sidebar-foreground">{account.provider}</span>
+          <span className="truncate text-sidebar-muted-foreground">{account.identity}</span>
         </TooltipTrigger>
-        <TooltipPopup side="right">{account.title}</TooltipPopup>
+        <TooltipPopup side="right">
+          {account.provider} · {account.identity}
+        </TooltipPopup>
       </Tooltip>
       {account.windows.map((window) => (
         <WindowTooltip key={window.id} window={window} now={now}>
@@ -158,7 +158,7 @@ function CollapsedAccount({
         <div
           role="img"
           tabIndex={0}
-          aria-label={`${account.title} · ${windowSummary(window, now)}`}
+          aria-label={`${account.provider} ${account.identity} · ${windowSummary(window, now)}`}
           className="flex cursor-default items-center gap-2 rounded-sm text-2xs leading-none tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70"
         >
           <span className="w-20 shrink-0 truncate text-sidebar-muted-foreground">

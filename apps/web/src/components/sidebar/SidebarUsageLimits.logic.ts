@@ -1,18 +1,33 @@
 import type { ServerProviderUsageWindow } from "@t3tools/contracts";
 import { type LimitAccount, remainingPercent } from "@t3tools/shared/usageLimits";
 
+import { PROVIDER_PRESENTATION } from "../usage/usageProviders";
+
 export type SidebarUsageTone = "normal" | "warning" | "critical";
 
 export interface SidebarUsageAccount {
   readonly key: string;
   readonly driver: LimitAccount["driver"];
+  /** Provider name for the expanded header, e.g. "Claude". */
+  readonly provider: string;
+  /** Account email, or the instance name when the provider reports none. */
+  readonly identity: string;
+  /** Short name for a collapsed row: the email's local part. */
   readonly label: string;
-  readonly title: string;
-  readonly plan: string | undefined;
   /** Short windows first: the 5-hour session, then weekly, then anything longer. */
   readonly windows: readonly ServerProviderUsageWindow[];
   /** The one bar a collapsed section shows: weekly when reported. */
   readonly primary: ServerProviderUsageWindow;
+}
+
+const PROVIDER_NAMES: Record<string, string> = { claudeAgent: "Claude", codex: "Codex" };
+
+export function providerName(driver: LimitAccount["driver"]): string {
+  return (
+    PROVIDER_NAMES[driver] ??
+    Object.values(PROVIDER_PRESENTATION).find((entry) => entry.driverKind === driver)?.label ??
+    String(driver)
+  );
 }
 
 const WINDOW_ORDER: Record<string, number> = { session: 0, weekly: 1, monthly: 2 };
@@ -24,7 +39,7 @@ export function usageTone(window: ServerProviderUsageWindow): SidebarUsageTone {
   return "normal";
 }
 
-/** Accounts with at least one bar, labelled by the email's local part so rows stay short. */
+/** Accounts with at least one bar, named by provider and email. */
 export function sidebarUsageAccounts(
   accounts: readonly LimitAccount[],
 ): readonly SidebarUsageAccount[] {
@@ -36,14 +51,14 @@ export function sidebarUsageAccounts(
       const primary = windows.find((window) => window.kind === "weekly") ?? windows[0];
       if (!primary) return [];
       const email = account.email?.trim();
-      const label = account.displayName ?? email?.split("@")[0] ?? "Account";
+      const identity = email || account.displayName || "Account";
       return [
         {
           key: account.key,
           driver: account.driver,
-          label,
-          title: email ?? label,
-          plan: account.plan,
+          provider: providerName(account.driver),
+          identity,
+          label: email?.split("@")[0] || identity,
           windows,
           primary,
         },

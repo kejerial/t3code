@@ -113,10 +113,10 @@ describe("SidebarUsageLimits", () => {
 
     const accountRows = rows(screen.container);
     expect(accountRows).toHaveLength(2);
-    expect(accountRows[0]).toContain("alpha");
+    expect(accountRows[0]).toContain("Claudealpha@example.com");
     expect(accountRows[0]).toContain("5-hour88%");
     expect(accountRows[0]).toContain("Weekly60%");
-    expect(accountRows[1]).toContain("beta");
+    expect(accountRows[1]).toContain("Claudebeta@example.com");
     expect(screen.container.textContent).not.toContain("gone");
     expect(
       screen.container.querySelector('[aria-label="Weekly: 60% left, resets in 2d 0h"]'),
