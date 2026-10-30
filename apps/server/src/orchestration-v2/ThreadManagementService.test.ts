@@ -606,7 +606,7 @@ it.effect.each([
 );
 
 it.effect(
-  "agents cannot list or message side chats, and the startup sweep deletes only older ones",
+  "agents cannot list or message side chats, and the startup sweep deletes only orphaned ones",
   () => {
     const instanceId = ProviderInstanceId.make("codex");
     const modelSelection = { instanceId, model: "gpt-5.1-codex" };
@@ -696,13 +696,8 @@ it.effect(
           createdBy: "user",
           creationSource: "web",
         });
-      const staleAside = ThreadId.make("thread:asides-stale");
-      const freshAside = ThreadId.make("thread:asides-fresh");
-      yield* openAside(staleAside);
-      yield* TestClock.adjust("1 second");
-      const startedAt = yield* DateTime.now;
-      yield* TestClock.adjust("1 second");
-      yield* openAside(freshAside);
+      const aside = ThreadId.make("thread:asides-kept");
+      yield* openAside(aside);
 
       const listed = yield* threads.listProjectThreads({ includeSubagents: true });
       expect(listed.map((thread) => thread.id)).toEqual([sourceThreadId]);
@@ -710,7 +705,7 @@ it.effect(
         .sendToThread({
           projectId: ProjectId.make("project:asides"),
           commandId: CommandId.make("command:asides-agent-send"),
-          threadId: freshAside,
+          threadId: aside,
           messageId: MessageId.make("message:asides-agent-send"),
           text: "Hello from another agent",
           attachments: [],
@@ -724,14 +719,18 @@ it.effect(
       const liveIds = threads
         .getShellSnapshot()
         .pipe(Effect.map(({ threads }) => threads.map((thread) => thread.id).toSorted()));
-      expect(yield* liveIds).toEqual([freshAside, staleAside, sourceThreadId].toSorted());
-      yield* threads.deleteAsideThreads({ createdBefore: startedAt });
-      const afterSweep = yield* liveIds;
-      expect(afterSweep).toEqual([freshAside, sourceThreadId].toSorted());
-      const sequence = yield* orchestrator.getThreadEventSequence(staleAside);
-      yield* threads.deleteAsideThreads({ createdBefore: startedAt });
-      expect(yield* liveIds).toEqual(afterSweep);
-      expect(yield* orchestrator.getThreadEventSequence(staleAside)).toEqual(sequence);
+      yield* threads.deleteOrphanAsideThreads();
+      expect(yield* liveIds).toEqual([aside, sourceThreadId].toSorted());
+      yield* orchestrator.dispatch({
+        type: "thread.delete",
+        commandId: CommandId.make("command:asides-delete-source"),
+        threadId: sourceThreadId,
+      });
+      yield* threads.deleteOrphanAsideThreads();
+      expect(yield* liveIds).toEqual([]);
+      const sequence = yield* orchestrator.getThreadEventSequence(aside);
+      yield* threads.deleteOrphanAsideThreads();
+      expect(yield* orchestrator.getThreadEventSequence(aside)).toEqual(sequence);
     }).pipe(Effect.provide(layerTest));
   },
 );

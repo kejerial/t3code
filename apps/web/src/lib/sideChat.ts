@@ -1,4 +1,4 @@
-import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   isAtomCommandInterrupted,
   runAtomCommand,
@@ -8,6 +8,7 @@ import {
 import {
   ASIDE_INTERACTION_MODE,
   ASIDE_RUNTIME_MODE,
+  findAsideThreads,
   selectAsideSourceRun,
 } from "@t3tools/client-runtime/state/threads";
 import {
@@ -20,7 +21,7 @@ import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { useComposerDraftStore } from "~/composerDraftStore";
 import { newMessageId, newThreadId } from "~/lib/utils";
 import { appAtomRegistry } from "../rpc/atomRegistry";
-import { isAsidePane, openAsideSplitViewPane, useSplitViewStore } from "../splitViewStore";
+import { openAsideSplitViewPane, useSplitViewStore } from "../splitViewStore";
 import { waitForThreadShell } from "../state/entities";
 import { readEnvironmentScope } from "../state/session";
 import { environmentThreadDetails, threadEnvironment } from "../state/threads";
@@ -53,77 +54,13 @@ function failed(result: AtomCommandResult<unknown, unknown>, fallback: string): 
   return true;
 }
 
-const deleteThread = (thread: ScopedThreadRef) =>
-  runAtomCommand(
-    appAtomRegistry,
-    threadEnvironment.delete,
-    { environmentId: thread.environmentId, input: { threadId: thread.threadId } },
-    { label: "close side chat" },
-  );
-
-/** Deletes the side chat; its pane closes once the thread is gone. */
-export async function closeSideChat(thread: ScopedThreadRef): Promise<void> {
-  failed(await deleteThread(thread), "Failed to close the side chat.");
-}
-
 function appendToDraft(thread: ScopedThreadRef, text: string) {
   const store = useComposerDraftStore.getState();
   const existing = store.getComposerDraft(thread)?.prompt.trimEnd() ?? "";
   store.setPrompt(thread, existing.length === 0 ? text : `${existing}\n${text}`);
 }
 
-/**
- * Opens a side chat beside `parent`. A question is sent as its first message; a draft is left in
- * its composer, and goes into the parent's side chat already on screen instead of a new one. The
- * parent's newest completed response is the fork point; a parent with none gets a notice.
- */
-export async function openSideChat(
-  parent: ScopedThreadRef,
-  options: { readonly question?: string; readonly draft?: string } = {},
-): Promise<boolean> {
-  if (!readEnvironmentScope(parent.environmentId, AuthOrchestrationOperateScope)) {
-    warn("This connection cannot open side chats.");
-    return false;
-  }
-  const runs =
-    appAtomRegistry.get(environmentThreadDetails.threadAtom(parent))?.projection.runs ?? [];
-  const run = selectAsideSourceRun(runs);
-  if (run === null) {
-    warn(SIDE_CHAT_UNAVAILABLE_REASON);
-    return false;
-  }
-  // One side chat pane at a time; one asked beside another thread goes before this one opens.
-  // The command itself replaces an earlier side chat of the same parent.
-  const shownAside = useSplitViewStore.getState().layout.panes.find(isAsidePane);
-  const shownForParent =
-    shownAside !== undefined && scopedThreadKey(shownAside.asideOf!) === scopedThreadKey(parent);
-  if (shownForParent && options.draft !== undefined) {
-    appendToDraft(shownAside.thread, options.draft);
-    return true;
-  }
-  if (shownAside && !shownForParent) {
-    await deleteThread(shownAside.thread);
-  }
-  const aside = scopeThreadRef(parent.environmentId, newThreadId());
-  const opened = await runAtomCommand(
-    appAtomRegistry,
-    threadEnvironment.openAside,
-    {
-      environmentId: parent.environmentId,
-      input: { sourceThreadId: parent.threadId, targetThreadId: aside.threadId, runId: run.id },
-    },
-    { label: "open side chat" },
-  );
-  if (failed(opened, "Failed to open a side chat.")) return false;
-  if (!(await waitForThreadShell(aside))) {
-    warn("The side chat was created, but its thread data did not reach this client.");
-    return false;
-  }
-  const { layout, setLayout } = useSplitViewStore.getState();
-  if (options.draft !== undefined) appendToDraft(aside, options.draft);
-  setLayout(openAsideSplitViewPane(layout, aside, parent));
-  const question = options.question?.trim();
-  if (!question) return true;
+async function sendQuestion(aside: ScopedThreadRef, question: string): Promise<void> {
   const sent = await runAtomCommand(
     appAtomRegistry,
     threadEnvironment.startTurn,
@@ -139,5 +76,62 @@ export async function openSideChat(
     { label: "send side chat question" },
   );
   failed(sent, "The side chat opened, but the question was not sent.");
+}
+
+/** The side chat `parent` already has, which stays until a new one replaces it. */
+function existingSideChat(parent: ScopedThreadRef): ScopedThreadRef | null {
+  const threads = appAtomRegistry.get(
+    threadEnvironment.snapshotAtom(parent.environmentId),
+  )?.threads;
+  const aside = findAsideThreads(threads ?? [], parent.threadId)[0];
+  return aside ? scopeThreadRef(parent.environmentId, aside.id) : null;
+}
+
+async function forkSideChat(parent: ScopedThreadRef): Promise<ScopedThreadRef | null> {
+  const runs =
+    appAtomRegistry.get(environmentThreadDetails.threadAtom(parent))?.projection.runs ?? [];
+  const run = selectAsideSourceRun(runs);
+  if (run === null) {
+    warn(SIDE_CHAT_UNAVAILABLE_REASON);
+    return null;
+  }
+  const aside = scopeThreadRef(parent.environmentId, newThreadId());
+  const opened = await runAtomCommand(
+    appAtomRegistry,
+    threadEnvironment.openAside,
+    {
+      environmentId: parent.environmentId,
+      input: { sourceThreadId: parent.threadId, targetThreadId: aside.threadId, runId: run.id },
+    },
+    { label: "open side chat" },
+  );
+  if (failed(opened, "Failed to open a side chat.")) return null;
+  if (!(await waitForThreadShell(aside))) {
+    warn("The side chat was created, but its thread data did not reach this client.");
+    return null;
+  }
+  return aside;
+}
+
+/**
+ * Shows the side chat of `parent` beside it, reopening the one it has unless `fresh` asks for a
+ * new fork from its newest completed response. A question is sent as a message; a draft is left
+ * in its composer.
+ */
+export async function openSideChat(
+  parent: ScopedThreadRef,
+  options: { readonly question?: string; readonly draft?: string; readonly fresh?: boolean } = {},
+): Promise<boolean> {
+  if (!readEnvironmentScope(parent.environmentId, AuthOrchestrationOperateScope)) {
+    warn("This connection cannot open side chats.");
+    return false;
+  }
+  const aside = (options.fresh ? null : existingSideChat(parent)) ?? (await forkSideChat(parent));
+  if (aside === null) return false;
+  if (options.draft !== undefined) appendToDraft(aside, options.draft);
+  const { layout, setLayout } = useSplitViewStore.getState();
+  setLayout(openAsideSplitViewPane(layout, aside, parent));
+  const question = options.question?.trim();
+  if (question) await sendQuestion(aside, question);
   return true;
 }

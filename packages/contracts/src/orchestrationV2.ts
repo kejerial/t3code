@@ -456,7 +456,7 @@ export const OrchestrationV2AppThread = Schema.Struct({
   delegatedFrom: Schema.optional(OrchestrationV2DelegatedFrom),
   /** The thread in this environment whose agent launched this one as a top-level thread. */
   launchedByThreadId: Schema.optional(ThreadId),
-  /** "aside" marks a throwaway side-chat fork that thread lists, search, and MCP hide. */
+  /** "aside" marks a side-chat fork of its parent that thread lists, search, and MCP hide. */
   kind: Schema.optional(OrchestrationV2ThreadKind),
   lineage: OrchestrationV2AppThreadLineage,
   forkedFrom: Schema.NullOr(
