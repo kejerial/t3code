@@ -147,7 +147,7 @@ export interface EnvironmentThreadShell {
   readonly worktreePath: string | null;
   readonly lineage: OrchestrationV2ThreadShell["lineage"];
   readonly forkedFrom: OrchestrationV2ThreadShell["forkedFrom"];
-  /** "aside" is a throwaway side chat; lists hide it and only its own pane shows it. */
+  /** "aside" is a side chat of its parent thread; lists hide it and only its own pane shows it. */
   readonly kind?: OrchestrationV2ThreadShell["kind"];
   readonly linkOrigin: OrchestrationV2ThreadShell["linkOrigin"] | null;
   /** The thread in a linked environment that delegated this one, if one did. */

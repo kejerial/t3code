@@ -112,7 +112,7 @@ import { resolveTerminalSessionLabel } from "@t3tools/shared/terminalLabels";
 import { useAtomValue } from "@effect/atom-react";
 import { type SetStateAction, use, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { BackgroundThreadContext, SplitPaneContext } from "./chat/backgroundThread";
-import { MessageSquareQuoteIcon, XIcon } from "lucide-react";
+import { MessageSquareQuoteIcon, SquarePenIcon, XIcon } from "lucide-react";
 import { Button } from "./ui/button";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 import { useLocation, useNavigate } from "@tanstack/react-router";
@@ -3144,6 +3144,31 @@ export default function ChatView(props: ChatViewProps) {
         </TooltipPopup>
       </Tooltip>
     ) : null;
+  const sideChatParent = activeThread.forkedFrom;
+  const newSideChatControl =
+    splitPane.aside && sideChatParent?.type === "run" && canOperateThread ? (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="New side chat"
+              className="shrink-0 [-webkit-app-region:no-drag]"
+              onClick={() =>
+                void openSideChat(
+                  scopeThreadRef(activeThread.environmentId, sideChatParent.threadId),
+                  { fresh: true },
+                )
+              }
+            />
+          }
+        >
+          <SquarePenIcon className="size-4" />
+        </TooltipTrigger>
+        <TooltipPopup side="bottom">New side chat from the latest response</TooltipPopup>
+      </Tooltip>
+    ) : null;
   // The corner controls belong to the focused pane, so in a split each pane carries its own.
   const sideChatInHeader = splitPane.count > 1;
   const panelToggleControlProps = {
@@ -3256,7 +3281,9 @@ export default function ChatView(props: ChatViewProps) {
             onOpenThread={onOpenRelatedThreadStable}
             rightPanelOpen={inlineRightPanelOwnsTitleBar}
             onNewThreadInProject={handleNewThreadInActiveProjectStable}
-            trailingControl={sideChatInHeader ? sideChatControl : undefined}
+            trailingControl={
+              splitPane.aside ? newSideChatControl : sideChatInHeader ? sideChatControl : undefined
+            }
             {...(activeDraftLogicalProjectKey
               ? { onOpenProjectSettings: handleOpenDraftProjectSettingsStable }
               : {})}

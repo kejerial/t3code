@@ -4,7 +4,6 @@ import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 
 import { useMediaQuery } from "../hooks/useMediaQuery";
-import { closeSideChat } from "../lib/sideChat";
 import { cn } from "../lib/utils";
 import {
   PRIMARY_SPLIT_PANE_ID,
@@ -16,7 +15,6 @@ import {
   resizeSplitViewPanes,
   useSplitViewStore,
   type SplitViewLayout,
-  type SplitViewPane,
 } from "../splitViewStore";
 import { buildThreadRouteParams, type ThreadRouteTarget } from "../threadRoutes";
 import { BackgroundThreadContext, SplitPaneContext } from "./chat/backgroundThread";
@@ -39,12 +37,6 @@ function focusedPaneId(layout: SplitViewLayout): string {
   return regular.some((pane) => pane.id === layout.focusedId)
     ? layout.focusedId!
     : (regular[0]?.id ?? PRIMARY_SPLIT_PANE_ID);
-}
-
-/** Side chats the layout no longer shows are throwaway threads, so leaving the split deletes them. */
-function asidesDropped(from: SplitViewLayout, to: SplitViewLayout): SplitViewPane[] {
-  const kept = new Set(to.panes.map((pane) => scopedThreadKey(pane.thread)));
-  return from.panes.filter((pane) => isAsidePane(pane) && !kept.has(scopedThreadKey(pane.thread)));
 }
 
 /**
@@ -70,7 +62,6 @@ export function SplitChatView({
   useEffect(() => {
     if (layout === stored) return;
     setLayout(layout);
-    for (const pane of asidesDropped(stored, layout)) void closeSideChat(pane.thread);
   }, [layout, setLayout, stored]);
 
   const focusedId = focusedPaneId(layout);
@@ -108,10 +99,6 @@ export function SplitChatView({
     const { layout: next, focus } = closeSplitViewPane(layout, id);
     setLayout(next);
     if (focus) openThread(focus);
-  };
-  const closeAside = (pane: ShownPane) => {
-    closePane(pane.id);
-    if (pane.target.kind === "server") void closeSideChat(pane.target.threadRef);
   };
   const dropOnPane = (
     index: number,
@@ -207,13 +194,7 @@ export function SplitChatView({
                 else paneElements.current.delete(pane.id);
               }}
               onFocus={() => focusPane(pane)}
-              onClose={
-                pane.aside
-                  ? () => closeAside(pane)
-                  : regularCount > 1
-                    ? () => closePane(pane.id)
-                    : null
-              }
+              onClose={pane.aside || regularCount > 1 ? () => closePane(pane.id) : null}
               onMissing={() => closePane(pane.id)}
               onDrop={(threads, side) => dropOnPane(index, threads, side)}
             />,
@@ -224,7 +205,7 @@ export function SplitChatView({
         <Sheet
           open
           onOpenChange={(open) => {
-            if (!open) closeAside(sheetAside);
+            if (!open) closePane(sheetAside.id);
           }}
         >
           <SheetPopup
@@ -244,7 +225,7 @@ export function SplitChatView({
               splitEnabled={false}
               register={noop}
               onFocus={noop}
-              onClose={() => closeAside(sheetAside)}
+              onClose={() => closePane(sheetAside.id)}
               onMissing={() => closePane(sheetAside.id)}
               onDrop={noop}
             />

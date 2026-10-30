@@ -488,7 +488,6 @@ const make = Effect.fn("serverRuntimeStartup.make")(function* (options?: Startup
   );
 
   const startup = Effect.gen(function* () {
-    const startedAt = yield* DateTime.now;
     yield* Effect.logDebug("startup phase: starting keybindings runtime");
     yield* runStartupPhase(
       "keybindings.start",
@@ -567,9 +566,7 @@ const make = Effect.fn("serverRuntimeStartup.make")(function* (options?: Startup
     yield* Effect.logInfo("V2 orchestration recovery completed", recovery);
     yield* runStartupPhase(
       "orchestration-v2.asides.delete",
-      (yield* ThreadManagement.ThreadManagementService).deleteAsideThreads({
-        createdBefore: startedAt,
-      }),
+      (yield* ThreadManagement.ThreadManagementService).deleteOrphanAsideThreads(),
     ).pipe(
       Effect.catch((cause) => Effect.logWarning("Failed to delete side chats", { cause })),
       forkParked,

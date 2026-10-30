@@ -9,9 +9,9 @@ import type {
 import * as DateTime from "effect/DateTime";
 
 /**
- * A side chat is a hidden, throwaway fork of a thread (`kind: "aside"`). It forks from the
- * newest completed run instead of `latest_stable`, which needs a checkpoint and fails for
- * non-git projects.
+ * A side chat is a hidden fork of a thread (`kind: "aside"`), kept until a new one replaces it.
+ * It forks from the newest completed run instead of `latest_stable`, which needs a checkpoint and
+ * fails for non-git projects.
  */
 export const ASIDE_THREAD_TITLE = "Side chat";
 export const ASIDE_INTERACTION_MODE: ProviderInteractionMode = "plan";

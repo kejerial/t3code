@@ -419,10 +419,8 @@ export interface ThreadManagementServiceShape {
   readonly sendToThread: (
     input: ThreadManagementSendInput,
   ) => Effect.Effect<ThreadManagementSendResult, ThreadManagementFailure>;
-  /** Startup deletes side chats from earlier runs; the cutoff spares ones opened since. */
-  readonly deleteAsideThreads: (input: {
-    readonly createdBefore: DateTime.Utc;
-  }) => Effect.Effect<void, Orchestrator.OrchestratorV2Error>;
+  /** Startup deletes side chats whose parent thread is gone; the rest stay for their parent. */
+  readonly deleteOrphanAsideThreads: () => Effect.Effect<void, Orchestrator.OrchestratorV2Error>;
   readonly assertProviderInstanceEnabled: (input: {
     readonly projectId: ProjectId;
     readonly commandId: CommandId;
@@ -1288,29 +1286,33 @@ const make = Effect.gen(function* () {
     if (failures[0] !== undefined) return yield* failures[0];
   });
 
-  const deleteAsideThreads: ThreadManagementServiceShape["deleteAsideThreads"] = Effect.fn(
-    "ThreadManagementService.deleteAsideThreads",
-  )(function* (input) {
-    const snapshot = yield* orchestrator.getShellSnapshot();
-    const asides = [...snapshot.threads, ...snapshot.archivedThreads].filter(
-      (thread) =>
-        thread.kind === "aside" && DateTime.isLessThan(thread.createdAt, input.createdBefore),
-    );
-    yield* Effect.forEach(
-      asides,
-      (thread) =>
-        dispatch({
-          type: "thread.delete",
-          commandId: CommandId.make(`server:delete-aside:${thread.id}`),
-          threadId: thread.id,
-        }).pipe(
-          Effect.catch((error) =>
-            Effect.logWarning("Unable to delete a side chat", { threadId: thread.id, error }),
+  const deleteOrphanAsideThreads: ThreadManagementServiceShape["deleteOrphanAsideThreads"] =
+    Effect.fn("ThreadManagementService.deleteOrphanAsideThreads")(function* () {
+      const snapshot = yield* orchestrator.getShellSnapshot();
+      const threads = [...snapshot.threads, ...snapshot.archivedThreads];
+      const parents = new Set(
+        threads.filter((thread) => thread.kind !== "aside").map((thread) => thread.id),
+      );
+      const asides = threads.filter(
+        (thread) =>
+          thread.kind === "aside" &&
+          !(thread.forkedFrom?.type === "run" && parents.has(thread.forkedFrom.threadId)),
+      );
+      yield* Effect.forEach(
+        asides,
+        (thread) =>
+          dispatch({
+            type: "thread.delete",
+            commandId: CommandId.make(`server:delete-aside:${thread.id}`),
+            threadId: thread.id,
+          }).pipe(
+            Effect.catch((error) =>
+              Effect.logWarning("Unable to delete a side chat", { threadId: thread.id, error }),
+            ),
           ),
-        ),
-      { discard: true },
-    );
-  });
+        { discard: true },
+      );
+    });
 
   return ThreadManagementService.of({
     ensureLegacyTranscript,
@@ -1379,7 +1381,7 @@ const make = Effect.gen(function* () {
     getThreadShell: orchestrator.getThreadShell,
     listProjectThreads,
     sendToThread,
-    deleteAsideThreads,
+    deleteOrphanAsideThreads,
     assertProviderInstanceEnabled,
     isProviderInstanceEnabledForProject,
     hasReceipt,
