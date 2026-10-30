@@ -3144,8 +3144,10 @@ export default function ChatView(props: ChatViewProps) {
         </TooltipPopup>
       </Tooltip>
     ) : null;
+  // The corner controls belong to the focused pane, so in a split each pane carries its own.
+  const sideChatInHeader = splitPane.count > 1;
   const panelToggleControlProps = {
-    sideChatControl,
+    sideChatControl: sideChatInHeader ? undefined : sideChatControl,
     terminalAvailable: activeProject !== null,
     terminalOpen: terminalUiState.terminalOpen,
     terminalShortcutLabel: shortcutLabelForCommand(keybindings, "terminal.toggle"),
@@ -3254,6 +3256,7 @@ export default function ChatView(props: ChatViewProps) {
             onOpenThread={onOpenRelatedThreadStable}
             rightPanelOpen={inlineRightPanelOwnsTitleBar}
             onNewThreadInProject={handleNewThreadInActiveProjectStable}
+            trailingControl={sideChatInHeader ? sideChatControl : undefined}
             {...(activeDraftLogicalProjectKey
               ? { onOpenProjectSettings: handleOpenDraftProjectSettingsStable }
               : {})}
