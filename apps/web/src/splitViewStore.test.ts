@@ -21,6 +21,7 @@ const layoutOf = (panes: ScopedThreadRef[], focused: ScopedThreadRef): SplitView
   panes: panes.map((thread) => ({ id: `pane-${thread.threadId}`, thread })),
   sizes: panes.map(() => 1 / panes.length),
   focusedId: `pane-${focused.threadId}`,
+  asides: {},
 });
 const asideOf = (layout: SplitViewLayout, aside: ScopedThreadRef, parent: ScopedThreadRef) =>
   openAsideSplitViewPane(layout, aside, parent);
@@ -69,12 +70,18 @@ describe("side chat panes", () => {
     expect(replaced.panes[1]!.asideOf).toEqual(b);
   });
 
-  it("goes with its thread when that pane closes or navigates away", () => {
+  it("goes with its thread when that pane closes or navigates away, and comes back with it", () => {
     const split = asideOf(layoutOf([a, b], a), d, a);
     const navigated = reconcileSplitViewLayout(split, c);
     expect(ids(navigated)).toEqual(["c", "b"]);
     expect(navigated.sizes[0]).toBeCloseTo(0.5);
     expect(navigated.focusedId).toBe("pane-a");
+    const returned = reconcileSplitViewLayout(navigated, a);
+    expect(ids(returned)).toEqual(["a", "d", "b"]);
+    expect(returned.panes[1]!.asideOf).toEqual(a);
+    expect(returned.focusedId).toBe("pane-a");
+    const lone = reconcileSplitViewLayout(asideOf(EMPTY_SPLIT_VIEW_LAYOUT, d, a), c);
+    expect(ids(reconcileSplitViewLayout(lone, a))).toEqual(["a", "d"]);
 
     const closed = closeSplitViewPane(split, "pane-a");
     expect(ids(closed.layout)).toEqual(["b"]);
@@ -85,6 +92,8 @@ describe("side chat panes", () => {
     expect(ids(dismissed.layout)).toEqual(["a", "b"]);
     expect(dismissed.focus).toBeNull();
     expect(dismissed.layout.sizes[0]).toBeCloseTo(0.5);
+    const away = reconcileSplitViewLayout(dismissed.layout, c);
+    expect(ids(reconcileSplitViewLayout(away, a))).toEqual(["a", "b"]);
   });
 });
 
