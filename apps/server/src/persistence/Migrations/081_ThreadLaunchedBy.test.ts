@@ -1,6 +1,7 @@
 import { assert, it } from "@effect/vitest";
 import * as NodeSqliteClient from "@t3tools/shared/nodeSqliteClient";
 import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
 import * as SqlClient from "effect/sql/SqlClient";
 
 import { runMigrations } from "../Migrations.ts";
@@ -60,33 +61,38 @@ layer("081_ThreadLaunchedBy", (it) => {
       );
     }),
   );
+});
 
-  it.effect("upgrades a fork database that recorded it as 73", () =>
-    Effect.gen(function* () {
-      const sql = yield* SqlClient.SqlClient;
-      yield* runMigrations({ toMigrationInclusive: 72 });
-      yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (73, 'ThreadLaunchedBy')`;
+it.layer(Layer.fresh(NodeSqliteClient.layer({ filename: ":memory:" })))(
+  "081_ThreadLaunchedBy on a fork database",
+  (it) => {
+    it.effect("upgrades a fork database that recorded it as 73", () =>
+      Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        yield* runMigrations({ toMigrationInclusive: 72 });
+        yield* sql`INSERT INTO effect_sql_migrations (migration_id, name) VALUES (73, 'ThreadLaunchedBy')`;
 
-      yield* runMigrations();
+        yield* runMigrations();
 
-      const recorded = yield* sql<{ readonly migration_id: number; readonly name: string }>`
+        const recorded = yield* sql<{ readonly migration_id: number; readonly name: string }>`
         SELECT migration_id, name FROM effect_sql_migrations WHERE migration_id >= 73
         ORDER BY migration_id
       `;
-      assert.deepEqual(
-        recorded.map((row) => `${row.migration_id}_${row.name}`),
-        [
-          "73_ActiveTurnItemIndexes",
-          "74_ExcludeAttachmentPlaceholdersFromSearch",
-          "75_SubagentDeliveryState",
-          "76_ProjectionProjectsPinArchive",
-          "77_RepairBooleanSettledOverride",
-          "78_DropOrchestrationEventCorrelationIndex",
-          "79_DelegatedRecoveryIndexes",
-          "80_ScheduledTaskThreadMode",
-          "81_ThreadLaunchedBy",
-        ],
-      );
-    }),
-  );
-});
+        assert.deepEqual(
+          recorded.map((row) => `${row.migration_id}_${row.name}`),
+          [
+            "73_ActiveTurnItemIndexes",
+            "74_ExcludeAttachmentPlaceholdersFromSearch",
+            "75_SubagentDeliveryState",
+            "76_ProjectionProjectsPinArchive",
+            "77_RepairBooleanSettledOverride",
+            "78_DropOrchestrationEventCorrelationIndex",
+            "79_DelegatedRecoveryIndexes",
+            "80_ScheduledTaskThreadMode",
+            "81_ThreadLaunchedBy",
+          ],
+        );
+      }),
+    );
+  },
+);
