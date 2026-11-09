@@ -132,7 +132,8 @@ export function observeSelectionActions({
     pointerDown = false;
     if (!gestureActive) return;
     gestureActive = false;
-    pointer = { x: event.clientX, y: event.clientY };
+    // A multi-click can continue (word → line); anchoring at the cursor would block the next click.
+    pointer = event.detail >= 2 ? null : { x: event.clientX, y: event.clientY };
     schedule(0);
   };
   const onKeyDown = (event: KeyboardEvent) => {
