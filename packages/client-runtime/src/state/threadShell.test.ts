@@ -281,6 +281,58 @@ describe("v2 thread shell lists", () => {
     registry.dispose();
   });
 
+  it("lists approvals from threads another thread's agent launched or messaged", () => {
+    const { registry, threads, snapshotAtom } = makeHarness();
+    const root = v2ThreadShell;
+    const other = { ...v2ThreadShell, id: ThreadId.make("other-orchestrator") };
+    const worker = {
+      ...v2ThreadShell,
+      id: ThreadId.make("worker"),
+      status: "running" as const,
+      activityRunStatus: "running" as const,
+      orchestratedByThreadId: root.id,
+    };
+    const request = { id: RuntimeRequestId.make("run-tests"), createdAt: v2Now };
+    const rootInputs = threads.childThreadInputsAtom({ environmentId, threadId: root.id });
+    const otherInputs = threads.childThreadInputsAtom({ environmentId, threadId: other.id });
+    const disposeRoot = registry.mount(rootInputs);
+    const disposeOther = registry.mount(otherInputs);
+    const { orchestratedByThreadId: _orchestrator, ...unorchestrated } = worker;
+    const withWorker = (thread: OrchestrationV2ThreadShell) =>
+      registry.set(snapshotAtom(environmentId), {
+        ...v2ShellSnapshot,
+        threads: [root, other, thread],
+      });
+
+    withWorker({ ...worker, pendingRuntimeRequest: { ...request, kind: "command" } });
+    expect(registry.get(rootInputs).map((thread) => thread.id)).toEqual([worker.id]);
+    expect(childThreadInputsTitle(registry.get(rootInputs))).toBe("Thread needs approval");
+
+    // The coordinator agent answers questions; only approvals need the user.
+    withWorker({ ...worker, pendingRuntimeRequest: { ...request, kind: "user_input" } });
+    expect(registry.get(rootInputs)).toEqual([]);
+
+    withWorker({
+      ...unorchestrated,
+      launchedByThreadId: root.id,
+      pendingRuntimeRequest: { ...request, kind: "command" },
+    });
+    expect(registry.get(rootInputs).map((thread) => thread.id)).toEqual([worker.id]);
+
+    // The latest thread to message it orchestrates it, not the one that launched it.
+    withWorker({
+      ...worker,
+      orchestratedByThreadId: other.id,
+      launchedByThreadId: root.id,
+      pendingRuntimeRequest: { ...request, kind: "command" },
+    });
+    expect(registry.get(rootInputs)).toEqual([]);
+    expect(registry.get(otherInputs).map((thread) => thread.id)).toEqual([worker.id]);
+    disposeOther();
+    disposeRoot();
+    registry.dispose();
+  });
+
   it("brings a parent back from Working while a nested subagent waits for approval", () => {
     const { registry, threads, snapshotAtom } = makeHarness();
     const child = {

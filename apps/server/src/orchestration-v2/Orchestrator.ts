@@ -3330,6 +3330,28 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
     return decided.success;
   });
 
+  // Before the dispatch, which reads pending events, so its own thread updates keep the field.
+  const recordOrchestrator = Effect.fn("orchestrationV2.dispatch.recordOrchestrator")(function* (
+    command: Extract<OrchestrationV2Command, { readonly type: "message.dispatch" }>,
+    events: Ref.Ref<Array<OrchestrationV2DomainEvent>>,
+  ) {
+    const sender = command.senderThreadId;
+    if (command.createdBy !== "agent" || sender === undefined || sender === command.threadId) {
+      return;
+    }
+    const { thread } = yield* getProjectionWithPendingEvents(command.threadId, events);
+    if (thread.orchestratedByThreadId === sender) return;
+    yield* emit(
+      events,
+      command,
+    )({
+      type: "thread.metadata-updated",
+      threadId: command.threadId,
+      occurredAt: yield* DateTime.now,
+      payload: { ...thread, orchestratedByThreadId: sender },
+    });
+  });
+
   const dispatchThreadMutation = Effect.fn("orchestrationV2.dispatch.threadMutation")(function* (
     command: Extract<
       OrchestrationV2ServerCommand,
@@ -13608,6 +13630,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
                 text: guestSend.text,
                 context: { version: 1 as const, records: [], guest: guestSend.guest },
               };
+        yield* recordOrchestrator(command, events);
         cancelUnsettledEffects = yield* dispatchMessage(dispatched, events, effects);
         yield* recordSubagentFollowup(dispatched, events).pipe(mapDispatchError(command));
         break;

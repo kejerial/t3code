@@ -464,6 +464,8 @@ export const OrchestrationV2AppThread = Schema.Struct({
   delegatedFrom: Schema.optional(OrchestrationV2DelegatedFrom),
   /** The thread in this environment whose agent launched this one as a top-level thread. */
   launchedByThreadId: Schema.optional(ThreadId),
+  /** The thread here whose agent last sent this one a message; its approvals show there too. */
+  orchestratedByThreadId: Schema.optional(ThreadId),
   /** "aside" marks a side-chat fork of its parent that thread lists, search, and MCP hide. */
   kind: Schema.optional(OrchestrationV2ThreadKind),
   lineage: OrchestrationV2AppThreadLineage,
@@ -2121,6 +2123,7 @@ export const OrchestrationV2ThreadShell = Schema.Struct({
   linkOrigin: Schema.optional(OrchestrationV2LinkOrigin),
   delegatedFrom: Schema.optional(OrchestrationV2DelegatedFrom),
   launchedByThreadId: Schema.optional(ThreadId),
+  orchestratedByThreadId: Schema.optional(ThreadId),
   kind: Schema.optional(OrchestrationV2ThreadKind),
   latestRunId: Schema.NullOr(RunId),
   latestRunRequestedAt: Schema.optional(Schema.NullOr(Schema.DateTimeUtc)),

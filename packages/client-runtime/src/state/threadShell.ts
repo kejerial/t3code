@@ -86,6 +86,17 @@ function subagentRequest(thread: OrchestrationV2ThreadShell): PendingSubagentReq
   return kind === "user_input" ? "user_input" : "approval";
 }
 
+/** A thread another thread's agent launched or messaged; only its approvals need the user there. */
+function coordinatedApproval(thread: OrchestrationV2ThreadShell): boolean {
+  const kind = thread.pendingRuntimeRequest?.kind;
+  return (
+    (thread.orchestratedByThreadId ?? thread.launchedByThreadId) !== undefined &&
+    kind !== undefined &&
+    kind !== "user_input" &&
+    kind !== "auth_refresh"
+  );
+}
+
 /** A side chat asks its user directly, so questions roll up to the parent as well as approvals. */
 function sideChatRequest(thread: OrchestrationV2ThreadShell): PendingSubagentRequest | null {
   const kind = thread.pendingRuntimeRequest?.kind;
@@ -154,15 +165,24 @@ const sameRequests = (
   [...right].every(([threadId, request]) => left.get(threadId) === request);
 
 export function childThreadInputsTitle(
-  children: ReadonlyArray<Pick<EnvironmentThreadShell, "hasPendingApprovals" | "lineage">>,
+  children: ReadonlyArray<
+    Pick<EnvironmentThreadShell, "hasPendingApprovals" | "lineage" | "delegatedFrom">
+  >,
 ): string {
   const approvals = children.filter((child) => child.hasPendingApprovals).length;
   const need = approvals === 0 ? "input" : approvals === children.length ? "approval" : "you";
-  const sideChats = children.filter((child) => child.lineage.sideChat === true).length;
-  const noun =
-    sideChats === children.length ? "side chat" : sideChats === 0 ? "subagent" : "thread";
+  const nouns = new Set(
+    children.map((child) =>
+      child.lineage.sideChat === true
+        ? "side chat"
+        : child.lineage.relationshipToParent === "subagent" || child.delegatedFrom !== null
+          ? "subagent"
+          : "thread",
+    ),
+  );
+  const noun = nouns.size === 1 ? [...nouns][0]! : "thread";
   return children.length === 1
-    ? `${noun === "side chat" ? "Side chat" : "Subagent"} needs ${need}`
+    ? `${noun[0]!.toUpperCase()}${noun.slice(1)} needs ${need}`
     : `${children.length} ${noun}s need ${need}`;
 }
 
@@ -464,6 +484,11 @@ export function createEnvironmentThreadShellAtoms(input: {
             addChild({ environmentId, threadId: parent }, environmentId, thread);
           } else if (thread.delegatedFrom !== undefined) {
             addChild(thread.delegatedFrom, environmentId, thread);
+          } else {
+            const coordinator = thread.orchestratedByThreadId ?? thread.launchedByThreadId;
+            if (coordinator !== undefined) {
+              addChild({ environmentId, threadId: coordinator }, environmentId, thread);
+            }
           }
         }
       }
@@ -476,7 +501,11 @@ export function createEnvironmentThreadShellAtoms(input: {
           if (seen.has(childKey)) continue;
           seen.add(childKey);
           pending.push(childKey);
-          if (subagentRequest(thread) !== null || sideChatRequest(thread) !== null) {
+          if (
+            subagentRequest(thread) !== null ||
+            sideChatRequest(thread) !== null ||
+            coordinatedApproval(thread)
+          ) {
             next.push(
               scopedThread(environmentId, thread, get(pendingSubagentRequestsAtom(environmentId))),
             );

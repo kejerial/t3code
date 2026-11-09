@@ -529,6 +529,8 @@ it.effect("retains automation and sender attribution while a message waits in th
     const message = projection.messages.find((item) => item.id === queued.message.id);
     assert.equal(message?.scheduledTaskId, scheduledTaskId);
     assert.equal(message?.senderThreadId, senderThreadId);
+    // The sending thread now orchestrates this one, so its approvals also show there.
+    assert.equal(projection.thread.orchestratedByThreadId, senderThreadId);
     assert.equal(message?.text, "Run the audit");
     // A fresh send queues instead of steering, so it needs no steerable run.
     const fresh = yield* threads.sendToThread({

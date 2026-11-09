@@ -1650,6 +1650,9 @@ export function threadShellFromProjection(
     ...(projection.thread.launchedByThreadId === undefined
       ? {}
       : { launchedByThreadId: projection.thread.launchedByThreadId }),
+    ...(projection.thread.orchestratedByThreadId === undefined
+      ? {}
+      : { orchestratedByThreadId: projection.thread.orchestratedByThreadId }),
     latestRunId: latestRun?.id ?? null,
     latestRunRequestedAt: latestRun?.requestedAt ?? null,
     latestRunStartedAt: latestRun?.startedAt ?? null,
@@ -1935,6 +1938,9 @@ function shellFromState(input: {
     ...(input.state.thread.launchedByThreadId === undefined
       ? {}
       : { launchedByThreadId: input.state.thread.launchedByThreadId }),
+    ...(input.state.thread.orchestratedByThreadId === undefined
+      ? {}
+      : { orchestratedByThreadId: input.state.thread.orchestratedByThreadId }),
     latestRunId: input.state.latestRunId,
     latestRunRequestedAt: input.state.latestRunRequestedAt,
     latestRunStartedAt: input.state.latestRunStartedAt,
