@@ -1,8 +1,9 @@
 import { createContext } from "react";
 
 /**
- * True for a thread whose global shortcuts and focus grabs stand down: one kept mounted under
- * Settings or Usage, or one in a split view pane that is not focused.
+ * True for a thread whose global shortcuts, listeners, and focus grabs stand down: one kept
+ * mounted under Settings or Usage, shown as a side chat in its parent's panel, or in a split view
+ * pane that is not focused.
  */
 export const BackgroundThreadContext = createContext(false);
 
