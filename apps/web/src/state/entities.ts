@@ -27,6 +27,7 @@ import type {
 } from "@t3tools/contracts";
 import type { ThreadCheckpointSummary } from "@t3tools/client-runtime/state/thread-checkpoints";
 import { Atom } from "effect/reactivity";
+import { asideOwnTurnItems } from "@t3tools/client-runtime/state/threads";
 import { appAtomRegistry } from "../rpc/atomRegistry";
 import { environmentProjects } from "./projects";
 import { environmentPresentations } from "./presentation";
@@ -259,6 +260,15 @@ export function useQuietThreadVisibleTurnItems(
       ? EMPTY_VISIBLE_TURN_ITEMS_ATOM
       : environmentThreadDetails.quietVisibleTurnItemsAtom(ref),
   );
+}
+
+/** A side chat pane shows only its own rows, not the history it forked from. */
+export function useQuietPaneVisibleTurnItems(
+  ref: ScopedThreadRef | null,
+  aside: boolean,
+): ReadonlyArray<ThreadStructureVisibleTurnItem> {
+  const turnItems = useQuietThreadVisibleTurnItems(ref);
+  return aside ? asideOwnTurnItems(turnItems) : turnItems;
 }
 
 export function useThreadCheckpointSummaries(

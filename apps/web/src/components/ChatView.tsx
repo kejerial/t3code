@@ -95,7 +95,6 @@ import {
 import { resolvePendingHandoff } from "@t3tools/client-runtime/handoff";
 import { HandoffRow } from "./chat/V2LifecycleRow";
 import {
-  asideOwnTurnItems,
   codexFeedbackMessage,
   deriveWorkspaceMutationId,
   isCompleteTurnItemRow,
@@ -256,7 +255,7 @@ import {
   useQuietThreadProjection,
   useThreadUpdatedAt,
   useThreadLastVisitedAt,
-  useQuietThreadVisibleTurnItems,
+  useQuietPaneVisibleTurnItems,
   useThreadStatus,
   useThreadHistory,
   useQuietThreadShell,
@@ -537,10 +536,11 @@ export default function ChatView(props: ChatViewProps) {
     serverProjection,
     activeProviderThread,
   );
-  const threadTurnItems = useQuietThreadVisibleTurnItems(routeThreadDetailRef);
-  const serverVisibleTurnItems = splitPane.aside
-    ? asideOwnTurnItems(threadTurnItems)
-    : threadTurnItems;
+  // A hook, so the compiler treats the rows as frozen and keeps the timeline input stable.
+  const serverVisibleTurnItems = useQuietPaneVisibleTurnItems(
+    routeThreadDetailRef,
+    splitPane.aside,
+  );
   const serverThreadHistory = useThreadHistory(routeThreadDetailRef);
   const threadHistoryControls = (() => {
     if (
