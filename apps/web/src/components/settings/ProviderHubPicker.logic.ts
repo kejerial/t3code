@@ -44,6 +44,8 @@ export function hasHubToken(instance: ProviderInstanceConfig): boolean {
   return (instance.environment ?? []).some(
     (variable) =>
       variable.name === HUB_TOKEN_VARIABLE &&
-      (variable.valueRedacted === true || variable.value.length > 0),
+      (variable.valueRedacted === true ||
+        typeof variable.value !== "string" ||
+        variable.value.length > 0),
   );
 }

@@ -48,7 +48,11 @@ function makeHarness(environmentIds: ReadonlyArray<EnvironmentId> = [environment
     registry: AtomRegistry.make(),
     snapshotAtom,
     catalogValueAtom,
-    threads: createEnvironmentThreadShellAtoms({ catalogValueAtom, snapshotAtom }),
+    threads: createEnvironmentThreadShellAtoms({
+      catalogValueAtom,
+      snapshotAtom,
+      hiddenThreadTagsAtom: () => Atom.make(null),
+    }),
   };
 }
 
@@ -184,6 +188,148 @@ describe("v2 thread shell lists", () => {
     });
     expect(registry.get(inputs)).toEqual([]);
     dispose();
+    registry.dispose();
+  });
+
+  it("rolls a side chat's questions and approvals up to its parent row", () => {
+    const { registry, threads, snapshotAtom } = makeHarness();
+    const root = v2ThreadShell;
+    const sideChat = {
+      ...root,
+      id: ThreadId.make("side-chat"),
+      status: "running" as const,
+      activityRunStatus: "running" as const,
+      latestRunId: RunId.make("side-chat-run"),
+      lineage: {
+        ...root.lineage,
+        parentThreadId: root.id,
+        relationshipToParent: "fork" as const,
+        sideChat: true,
+      },
+    };
+    const request = { id: RuntimeRequestId.make("ask"), createdAt: v2Now };
+    const parentRef = { environmentId, threadId: root.id };
+    const parent = threads.threadShellAtom(parentRef);
+    const inputs = threads.childThreadInputsAtom(parentRef);
+    const disposeParent = registry.mount(parent);
+    const disposeInputs = registry.mount(inputs);
+    const disposeNavigation = registry.mount(threads.navigationThreadShellsAtom);
+    const withRequest = (
+      kind: "user_input" | "command",
+      options: { readonly blocking?: boolean } = {},
+    ) =>
+      registry.set(snapshotAtom(environmentId), {
+        ...v2ShellSnapshot,
+        threads: [
+          root,
+          {
+            ...sideChat,
+            pendingRuntimeRequest: {
+              ...request,
+              kind,
+              ...(options.blocking === undefined ? {} : { blocking: options.blocking }),
+            },
+          },
+        ],
+      });
+
+    withRequest("user_input");
+    expect(registry.get(parent)?.pendingSubagentRequest).toBe("user_input");
+    expect(childThreadInputsTitle(registry.get(inputs))).toBe("Side chat needs input");
+    expect(registry.get(threads.navigationThreadShellsAtom).map((thread) => thread.id)).toEqual([
+      root.id,
+    ]);
+
+    withRequest("user_input", { blocking: false });
+    expect(registry.get(parent)?.pendingSubagentRequest).toBe("user_input");
+
+    withRequest("command");
+    expect(registry.get(parent)?.pendingSubagentRequest).toBe("approval");
+    expect(childThreadInputsTitle(registry.get(inputs))).toBe("Side chat needs approval");
+
+    const helper = {
+      ...sideChat,
+      id: ThreadId.make("side-chat-helper"),
+      creationSource: "mcp" as const,
+      lineage: {
+        ...sideChat.lineage,
+        parentThreadId: sideChat.id,
+        relationshipToParent: "subagent" as const,
+        sideChat: false,
+      },
+      pendingRuntimeRequest: { ...request, kind: "command" as const },
+    };
+    const sideChats = threads.sideChatsAtom(parentRef);
+    const disposeSideChats = registry.mount(sideChats);
+    registry.set(snapshotAtom(environmentId), {
+      ...v2ShellSnapshot,
+      threads: [root, sideChat, helper],
+    });
+    expect(registry.get(parent)?.pendingSubagentRequest).toBe("approval");
+    expect(
+      registry.get(sideChats).map((thread) => [thread.id, thread.pendingSubagentRequest]),
+    ).toEqual([[sideChat.id, "approval"]]);
+
+    registry.set(snapshotAtom(environmentId), { ...v2ShellSnapshot, threads: [root, sideChat] });
+    expect(registry.get(parent)?.pendingSubagentRequest).toBeNull();
+    expect(registry.get(sideChats).map((thread) => thread.pendingSubagentRequest)).toEqual([null]);
+    expect(registry.get(inputs)).toEqual([]);
+    disposeSideChats();
+    disposeNavigation();
+    disposeInputs();
+    disposeParent();
+    registry.dispose();
+  });
+
+  it("lists approvals from threads another thread's agent launched or messaged", () => {
+    const { registry, threads, snapshotAtom } = makeHarness();
+    const root = v2ThreadShell;
+    const other = { ...v2ThreadShell, id: ThreadId.make("other-orchestrator") };
+    const worker = {
+      ...v2ThreadShell,
+      id: ThreadId.make("worker"),
+      status: "running" as const,
+      activityRunStatus: "running" as const,
+      orchestratedByThreadId: root.id,
+    };
+    const request = { id: RuntimeRequestId.make("run-tests"), createdAt: v2Now };
+    const rootInputs = threads.childThreadInputsAtom({ environmentId, threadId: root.id });
+    const otherInputs = threads.childThreadInputsAtom({ environmentId, threadId: other.id });
+    const disposeRoot = registry.mount(rootInputs);
+    const disposeOther = registry.mount(otherInputs);
+    const { orchestratedByThreadId: _orchestrator, ...unorchestrated } = worker;
+    const withWorker = (thread: OrchestrationV2ThreadShell) =>
+      registry.set(snapshotAtom(environmentId), {
+        ...v2ShellSnapshot,
+        threads: [root, other, thread],
+      });
+
+    withWorker({ ...worker, pendingRuntimeRequest: { ...request, kind: "command" } });
+    expect(registry.get(rootInputs).map((thread) => thread.id)).toEqual([worker.id]);
+    expect(childThreadInputsTitle(registry.get(rootInputs))).toBe("Thread needs approval");
+
+    // The coordinator agent answers questions; only approvals need the user.
+    withWorker({ ...worker, pendingRuntimeRequest: { ...request, kind: "user_input" } });
+    expect(registry.get(rootInputs)).toEqual([]);
+
+    withWorker({
+      ...unorchestrated,
+      launchedByThreadId: root.id,
+      pendingRuntimeRequest: { ...request, kind: "command" },
+    });
+    expect(registry.get(rootInputs).map((thread) => thread.id)).toEqual([worker.id]);
+
+    // The latest thread to message it orchestrates it, not the one that launched it.
+    withWorker({
+      ...worker,
+      orchestratedByThreadId: other.id,
+      launchedByThreadId: root.id,
+      pendingRuntimeRequest: { ...request, kind: "command" },
+    });
+    expect(registry.get(rootInputs)).toEqual([]);
+    expect(registry.get(otherInputs).map((thread) => thread.id)).toEqual([worker.id]);
+    disposeOther();
+    disposeRoot();
     registry.dispose();
   });
 

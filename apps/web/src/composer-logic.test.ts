@@ -25,6 +25,7 @@ import {
   parseSideChatComposerCommand,
   replaceTextRange,
 } from "./composer-logic";
+import { slashCommandItemsForPromptPosition } from "./components/chat/composerSlashCommandSearch";
 import { carryDisplacedCustomAnswerIntoPrompt } from "./pendingUserInput";
 import { formatTerminalContextReference } from "./lib/terminalContext";
 
@@ -558,5 +559,20 @@ describe("parseSideChatComposerCommand", () => {
     expect(parseSideChatComposerCommand("/BTW")).toEqual({ question: "" });
     expect(parseSideChatComposerCommand("/btwx")).toBeNull();
     expect(parseSideChatComposerCommand("tell me /btw")).toBeNull();
+  });
+});
+
+describe("side chat slash commands", () => {
+  it("are not offered after the start of a message", () => {
+    const items = (["side", "btw", "clear", "model"] as const).map((command) => ({
+      id: `slash:${command}`,
+      type: "slash-command" as const,
+      command,
+      label: `/${command}`,
+      description: "",
+    }));
+    expect(slashCommandItemsForPromptPosition(items, false).map((item) => item.id)).toEqual([
+      "slash:model",
+    ]);
   });
 });
