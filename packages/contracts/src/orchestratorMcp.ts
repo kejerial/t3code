@@ -272,6 +272,11 @@ export const OrchestratorMcpCreateThreadsInput = Schema.Struct({
     Schema.isMinLength(1),
     Schema.isMaxLength(20),
   ),
+  topLevel: Schema.optional(
+    Schema.Boolean.annotate({
+      description: "List the threads on their own in the sidebar, not under yours.",
+    }),
+  ),
   clientRequestId: Schema.optional(OrchestratorMcpClientRequestId),
 });
 export type OrchestratorMcpCreateThreadsInput = typeof OrchestratorMcpCreateThreadsInput.Type;

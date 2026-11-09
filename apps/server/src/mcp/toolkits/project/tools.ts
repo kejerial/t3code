@@ -146,6 +146,11 @@ const ThreadLaunchTool = Tool.make("t3_thread_launch", {
       }),
     ),
     attachments: Schema.optional(Schema.Array(McpAttachmentInput).check(Schema.isMaxLength(8))),
+    topLevel: Schema.optional(
+      Schema.Boolean.annotate({
+        description: "List the thread on its own in the sidebar, not under yours.",
+      }),
+    ),
     clientRequestId: Schema.optional(OrchestratorMcpClientRequestId),
     /** Set by a linked environment launching its agent's delegated task here; ignored otherwise. */
     delegatedFrom: Schema.optional(OrchestrationV2DelegatedFrom),

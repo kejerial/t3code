@@ -1857,6 +1857,17 @@ describe("OrchestratorMcpService provider resolution", () => {
             assert.equal(child.providerInstanceId, selection.instanceId);
             assert.equal(child.model, selection.model);
             assert.deepEqual(yield* service.createThreads(scope, request), first);
+            const nested = yield* orchestrator.getThreadProjection(child.threadId);
+            assert.equal(nested.thread.launchedByThreadId, parentThreadId);
+            const topLevel = yield* service.createThreads(scope, {
+              ...request,
+              clientRequestId: "top-level",
+              topLevel: true,
+            });
+            const standalone = yield* orchestrator.getThreadProjection(
+              topLevel.threads[0]!.threadId,
+            );
+            assert.isUndefined(standalone.thread.launchedByThreadId);
 
             // The creation receipt exists, but this prompt has not been accepted yet.
             const withPrompt = {
