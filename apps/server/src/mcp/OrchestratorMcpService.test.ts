@@ -3545,10 +3545,34 @@ describe("OrchestratorMcpService thread list", () => {
     status: "completed" as const,
     snoozedUntil: snoozed ? DateTime.makeUnsafe("2099-01-01T00:00:00Z") : null,
   });
+  const overseer = ThreadId.make("thread:overseer");
+  const overseen = (
+    id: string,
+    fields: Partial<ReturnType<typeof liveThreadShell>>,
+    parent?: Pick<ReturnType<typeof liveThreadShell>["lineage"], "relationshipToParent">,
+  ) => {
+    const base = shell(id, "project:c", false);
+    return {
+      ...base,
+      ...fields,
+      lineage: parent ? { ...base.lineage, ...parent, parentThreadId: overseer } : base.lineage,
+    };
+  };
   const shells = [
     shell("thread:a-snoozed", "project:a", true),
     shell("thread:a-awake", "project:a", false),
     shell("thread:b-snoozed", "project:b", true),
+    overseen("thread:launched", { launchedByThreadId: overseer }),
+    overseen("thread:messaged", {
+      launchedByThreadId: ThreadId.make("thread:other"),
+      orchestratedByThreadId: overseer,
+    }),
+    overseen("thread:subagent", {}, { relationshipToParent: "subagent" }),
+    overseen("thread:fork", {}, { relationshipToParent: "fork" }),
+    overseen("thread:moved-away", {
+      launchedByThreadId: overseer,
+      orchestratedByThreadId: ThreadId.make("thread:other"),
+    }),
   ];
   const service = layerOrchestratorService.pipe(
     Layer.provide(
@@ -3591,6 +3615,17 @@ describe("OrchestratorMcpService thread list", () => {
           ["thread:a-snoozed", "project:a"],
           ["thread:b-snoozed", "project:b"],
         ],
+      );
+    }).pipe(Effect.provide(service)),
+  );
+
+  it.effect("lists only the threads a thread oversees with overseenBy", () =>
+    Effect.gen(function* () {
+      const mcp = yield* OrchestratorMcpService.OrchestratorMcpService;
+      const listed = yield* mcp.listThreads(client, { allProjects: true, overseenBy: overseer });
+      assert.deepStrictEqual(
+        listed.threads.map((thread) => thread.threadId),
+        ["thread:launched", "thread:messaged", "thread:subagent"],
       );
     }).pipe(Effect.provide(service)),
   );

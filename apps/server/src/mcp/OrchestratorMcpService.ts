@@ -826,6 +826,15 @@ function listItemFromShell(
   };
 }
 
+// Mirrors the client's approval roll-up, so this lists the threads whose approvals that thread shows.
+function overseerOf(shell: OrchestrationV2ThreadShell): ThreadId | undefined {
+  const { parentThreadId, relationshipToParent, sideChat } = shell.lineage;
+  if (parentThreadId !== null && (relationshipToParent === "subagent" || sideChat === true)) {
+    return parentThreadId;
+  }
+  return shell.delegatedFrom?.threadId ?? shell.orchestratedByThreadId ?? shell.launchedByThreadId;
+}
+
 function threadDetail(
   scope: McpInvocationScope,
   projection: Pick<OrchestrationV2ThreadProjection, "thread" | "runs" | "runtimeRequests">,
@@ -3050,6 +3059,9 @@ const make = Effect.gen(function* () {
         .filter(
           (thread) =>
             titleContains === undefined || thread.title.toLocaleLowerCase().includes(titleContains),
+        )
+        .filter(
+          (thread) => input.overseenBy === undefined || overseerOf(thread) === input.overseenBy,
         );
       const cursor = input.cursor ?? 0;
       const limit = input.limit ?? DEFAULT_THREAD_LIST_LIMIT;

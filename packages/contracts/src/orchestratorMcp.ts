@@ -348,6 +348,12 @@ export const OrchestratorMcpThreadListInput = Schema.Struct({
     Schema.Array(OrchestratorMcpThreadStatus).check(Schema.isMaxLength(10)),
   ),
   titleContains: Schema.optional(TrimmedNonEmptyString.check(Schema.isMaxLength(256))),
+  overseenBy: Schema.optional(
+    ThreadId.annotate({
+      description:
+        "Only threads this thread oversees: its subagents, side chats, delegated tasks, and threads it launched or messaged.",
+    }),
+  ),
   settled: Schema.optional(Schema.Boolean),
   snoozed: Schema.optional(Schema.Boolean),
   includeSubagents: Schema.optional(Schema.Boolean),
