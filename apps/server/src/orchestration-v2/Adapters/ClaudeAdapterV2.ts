@@ -3228,6 +3228,14 @@ function claudeTaskTypeFromSdkMessage(message: SDKMessage): string | null {
   return typeof taskType === "string" ? taskType : null;
 }
 
+// After compact_boundary, Claude Code re-streams the kept history with its original timestamps.
+// The CLI is this server's subprocess, so its clock is ours.
+function isClaudeCompactionReplay(message: SDKMessage, boundaryAtMillis: number | undefined) {
+  if (boundaryAtMillis === undefined) return false;
+  const timestamp = Reflect.get(message, "timestamp");
+  return typeof timestamp === "string" && Date.parse(timestamp) < boundaryAtMillis;
+}
+
 function isClaudeNonSubagentTask(message: SDKMessage): boolean {
   return isClaudeOpaqueBackgroundTaskType(claudeTaskTypeFromSdkMessage(message));
 }
@@ -5236,6 +5244,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
         const opaqueBackgroundTaskReplayTombstonesByNativeThread = yield* Ref.make(
           new Map<string, Set<string>>(),
         );
+        const compactBoundaryAtByQuery = new WeakMap<ClaudeAgentSdkQuerySession, number>();
         const lastProviderThreadByNativeThread = yield* Ref.make(
           new Map<string, OrchestrationV2ProviderThread>(),
         );
@@ -8832,6 +8841,14 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           }
 
           const message = input.message;
+          if (message.type === "system" && message.subtype === "compact_boundary") {
+            compactBoundaryAtByQuery.set(input.query, DateTime.toEpochMillis(yield* DateTime.now));
+          } else if (
+            (message.type === "assistant" || message.type === "user") &&
+            isClaudeCompactionReplay(message, compactBoundaryAtByQuery.get(input.query))
+          ) {
+            return;
+          }
           if (message.type === "prompt_suggestion") {
             // Arrives after `result`; offer it only while the completed turn is still the latest.
             // A continuation can settle from buffered frames first, so its suggestion may be a user turn's.

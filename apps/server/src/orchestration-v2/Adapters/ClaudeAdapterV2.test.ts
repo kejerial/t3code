@@ -7971,6 +7971,59 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       ),
   );
 
+  it.effect("ignores the kept history Claude re-streams after a compact boundary", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeWakeHarness;
+      yield* harness.runtime.startTurn(
+        makeClaudeTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now: yield* DateTime.now,
+          attemptId: RunAttemptId.make("attempt-compaction-replay"),
+          text: "Continue.",
+          attachments: [],
+        }),
+      );
+      yield* TestClock.adjust("1 minute");
+      const timed = (id: string, uuid: string, timestamp: string) => ({
+        ...usageSnapshotFrame(id, uuid, zeroUsage),
+        timestamp,
+      });
+      const frames = [
+        claudeSdkFrame({
+          type: "system",
+          subtype: "compact_boundary",
+          compact_metadata: { trigger: "auto", pre_tokens: 1_000, post_tokens: 400 },
+          uuid: "00000000-0000-4000-8000-000000000690",
+          session_id: WAKE_NATIVE_SESSION,
+        }),
+        timed("msg_kept", "00000000-0000-4000-8000-000000000691", "1970-01-01T00:00:00.000Z"),
+        timed("msg_live", "00000000-0000-4000-8000-000000000692", "1970-01-01T00:01:00.000Z"),
+        makeResultFrame({ uuid: "00000000-0000-4000-8000-000000000693", result: "Done." }),
+      ];
+      for (const frame of frames) yield* Queue.offer(harness.sdkMessages, frame as SDKMessage);
+      const terminal = yield* Queue.take(harness.terminalReceipts);
+      assert.equal(terminal.status, "completed");
+      const nativeIds = new Set(
+        harness.events.flatMap((event) =>
+          event.type === "turn_item.updated" && event.turnItem.type === "assistant_message"
+            ? [event.turnItem.nativeItemRef?.nativeId]
+            : [],
+        ),
+      );
+      assert.deepEqual([...nativeIds], ["00000000-0000-4000-8000-000000000692"]);
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          IdAllocator.layer,
+          McpProviderSessions.layer,
+          NodeServices.layer,
+          NodeCrypto.layer,
+        ),
+      ),
+    ),
+  );
+
   it.effect("merges cumulative stream usage into the message_start counts", () =>
     Effect.gen(function* () {
       const harness = yield* makeWakeHarnessWithOptions({
