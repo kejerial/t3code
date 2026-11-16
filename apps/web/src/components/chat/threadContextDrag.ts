@@ -1,5 +1,7 @@
-import type { EnvironmentId, ScopedThreadRef } from "@t3tools/contracts";
+import type { EnvironmentId } from "@t3tools/contracts";
 import { type RefObject, useEffect, useEffectEvent, useSyncExternalStore } from "react";
+
+import type { ThreadContextDropRef } from "./threadContextDrop.logic";
 
 export const THREAD_CONTEXT_DROP_EVENT = "t3-thread-context-drop";
 
@@ -7,7 +9,7 @@ export const THREAD_CONTEXT_DROP_EVENT = "t3-thread-context-drop";
 export type ThreadDropSide = "before" | "after";
 
 interface ThreadContextDropDetail {
-  readonly threads: ReadonlyArray<ScopedThreadRef>;
+  readonly threads: ReadonlyArray<ThreadContextDropRef>;
   readonly side: ThreadDropSide;
 }
 
@@ -16,7 +18,7 @@ export function useThreadContextDrop(
   environmentId: EnvironmentId | null,
   targetKey: string,
   onDrop: (
-    refs: ReadonlyArray<ScopedThreadRef>,
+    refs: ReadonlyArray<ThreadContextDropRef>,
     isActive: () => boolean,
     side: ThreadDropSide,
   ) => void,
@@ -108,7 +110,7 @@ export function endThreadContextDrag() {
 
 export function dropThreadContext(
   point: { x: number; y: number },
-  threads: ReadonlyArray<ScopedThreadRef>,
+  threads: ReadonlyArray<ThreadContextDropRef>,
 ): boolean {
   const target = findDropTarget(point);
   if (!target || threads.length === 0) return false;
