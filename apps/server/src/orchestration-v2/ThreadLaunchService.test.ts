@@ -556,14 +556,16 @@ it.effect("retains automation and sender attribution while a message waits in th
   return Effect.gen(function* () {
     const launches = yield* ThreadLaunch.ThreadLaunchService;
     const threads = yield* ThreadManagement.ThreadManagementService;
-    const launched = yield* launches.launch(
-      launchInput({
+    const launcherThreadId = ThreadId.make("thread:agent-launcher");
+    const launched = yield* launches.launch({
+      ...launchInput({
         command: "command:automation:queue",
         thread: "thread:automation:queue",
         message: "First message",
         workspace: { type: "worktree", baseRef: "main" },
       }),
-    );
+      launchedByThreadId: launcherThreadId,
+    });
     const scheduledTaskId = ScheduledTaskId.make("scheduled-task:queued");
     const senderThreadId = ThreadId.make("thread:agent-sender");
     const queued = yield* threads.sendToThread({
@@ -586,6 +588,13 @@ it.effect("retains automation and sender attribution while a message waits in th
     assert.equal(message?.senderThreadId, senderThreadId);
     // The sending thread now orchestrates this one, so its approvals also show there.
     assert.equal(projection.thread.orchestratedByThreadId, senderThreadId);
+    // Thread lists filter by overseer before building shells, so the listing carries both ids.
+    const listed = yield* threads.listProjectThreads({ projectId, includeSubagents: true });
+    const entry = listed.find((thread) => thread.id === launched.threadId);
+    assert.deepEqual(
+      [entry?.launchedByThreadId, entry?.orchestratedByThreadId],
+      [launcherThreadId, senderThreadId],
+    );
     assert.equal(message?.text, "Run the audit");
     // A fresh send queues instead of steering, so it needs no steerable run.
     const fresh = yield* threads.sendToThread({

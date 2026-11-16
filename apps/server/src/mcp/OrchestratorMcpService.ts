@@ -970,6 +970,22 @@ function listItemFromShell(
   };
 }
 
+// Mirrors the client's approval roll-up, so this lists the threads whose approvals that thread shows.
+function overseerOf(
+  thread: Pick<
+    OrchestrationV2ThreadShell,
+    "lineage" | "delegatedFrom" | "orchestratedByThreadId" | "launchedByThreadId"
+  >,
+): ThreadId | undefined {
+  const { parentThreadId, relationshipToParent, sideChat } = thread.lineage;
+  if (parentThreadId !== null && (relationshipToParent === "subagent" || sideChat === true)) {
+    return parentThreadId;
+  }
+  return (
+    thread.delegatedFrom?.threadId ?? thread.orchestratedByThreadId ?? thread.launchedByThreadId
+  );
+}
+
 function threadDetail(
   scope: McpInvocationScope,
   projection: Pick<OrchestrationV2ThreadProjection, "thread" | "runs" | "runtimeRequests">,
@@ -3241,6 +3257,9 @@ const make = Effect.gen(function* () {
           (thread) =>
             input.snoozed !== true ||
             (thread.snoozedUntil != null && DateTime.toEpochMillis(thread.snoozedUntil) > nowMs),
+        )
+        .filter(
+          (thread) => input.overseenBy === undefined || overseerOf(thread) === input.overseenBy,
         );
       // Shells are the costly part, so build them only for the threads the page needs.
       const shellsOf = (threads: ReadonlyArray<{ readonly id: ThreadId }>) =>

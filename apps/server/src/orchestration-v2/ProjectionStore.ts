@@ -488,6 +488,8 @@ export type ActiveThreadListEntry = Pick<
   | "title"
   | "lineage"
   | "delegatedFrom"
+  | "launchedByThreadId"
+  | "orchestratedByThreadId"
   | "settledOverride"
   | "settledAt"
   | "snoozedUntil"
@@ -9063,6 +9065,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         readonly delegated_from_environment_id: string | null;
         readonly delegated_from_thread_id: string | null;
         readonly delegated_from_title: string | null;
+        readonly launched_by_thread_id: string | null;
+        readonly orchestrated_by_thread_id: string | null;
         readonly settled_override: string | null;
         readonly settled_at: string | null;
         readonly snoozed_until: string | null;
@@ -9081,6 +9085,8 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
           json_extract(t.payload_json, '$.delegatedFrom.environmentId') AS delegated_from_environment_id,
           json_extract(t.payload_json, '$.delegatedFrom.threadId') AS delegated_from_thread_id,
           json_extract(t.payload_json, '$.delegatedFrom.title') AS delegated_from_title,
+          json_extract(t.payload_json, '$.launchedByThreadId') AS launched_by_thread_id,
+          json_extract(t.payload_json, '$.orchestratedByThreadId') AS orchestrated_by_thread_id,
           json_extract(t.payload_json, '$.settledOverride') AS settled_override,
           json_extract(t.payload_json, '$.settledAt') AS settled_at,
           json_extract(t.payload_json, '$.snoozedUntil') AS snoozed_until
@@ -9102,6 +9108,12 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
                 title: row.delegated_from_title ?? "",
               },
             }),
+        ...(row.launched_by_thread_id === null
+          ? {}
+          : { launchedByThreadId: ThreadId.make(row.launched_by_thread_id) }),
+        ...(row.orchestrated_by_thread_id === null
+          ? {}
+          : { orchestratedByThreadId: ThreadId.make(row.orchestrated_by_thread_id) }),
         settledOverride:
           row.settled_override === "settled" || row.settled_override === "active"
             ? row.settled_override
