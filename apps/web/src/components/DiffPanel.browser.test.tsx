@@ -428,6 +428,7 @@ it("shows a turn's repositories in a folder that is not a Git repository", async
       <div style={{ height: 600, width: 390, display: "flex", flexDirection: "column" }}>
         <DiffPanel
           mode="embedded"
+          threadRef={context.threadRef}
           composerDraftTarget={context.threadRef}
           workspaceMutationId={null}
           visible
