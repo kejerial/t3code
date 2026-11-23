@@ -110,6 +110,33 @@ export function SidebarDragBoundary(props: {
   );
 }
 
+/** A header for a section that never collapses, styled like the shelf toggles. */
+export function SidebarStaticSectionHeader(props: {
+  marker: "needs-you-header" | "active-header";
+  label: string;
+  count: number;
+  isDropTarget?: boolean;
+}) {
+  return (
+    <SortableSidebarMarker
+      marker={props.marker}
+      data-testid={`sidebar-${props.marker}`}
+      className="relative mx-0.5 h-8"
+    >
+      <div
+        className={cn(
+          "flex h-8 items-center gap-2 px-2 text-xs font-medium",
+          props.isDropTarget ? "text-primary" : "text-sidebar-muted-foreground",
+        )}
+      >
+        <span className="min-w-0 truncate">{props.label}</span>
+        <span className="flex-1" />
+        <span className="font-normal tabular-nums">{props.count}</span>
+      </div>
+    </SortableSidebarMarker>
+  );
+}
+
 export function SidebarSectionHeader(props: {
   marker: "working-header" | "snoozed-header" | "settled-header";
   label: string;

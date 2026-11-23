@@ -197,9 +197,10 @@ export function useRetainedValue<T>(key: string | null, value: T | null): T | nu
 export const animateSidebarLayoutChanges: AnimateLayoutChanges = (args) =>
   args.isSorting ? defaultAnimateLayoutChanges(args) : false;
 
-// Snoozed rows cannot accept drops without a wake time. Working rows only drag out as chat context.
+// Snoozed rows cannot accept drops without a wake time. Working and Needs you rows only drag out
+// as chat context: status, not the user, places them.
 
-export type SidebarSection = "pinned" | "active" | "working" | "snoozed" | "settled";
+export type SidebarSection = "pinned" | "needs-you" | "active" | "working" | "snoozed" | "settled";
 
 export function resolveSidebarThreadSection(input: {
   readonly snoozed: boolean;
@@ -216,6 +217,8 @@ const SIDEBAR_MARKER_PREFIX = "sidebar-marker-";
 
 export type SidebarListMarker =
   | "pinned-header"
+  | "needs-you-header"
+  | "active-header"
   | "active-placeholder"
   | "settled-placeholder"
   | "pinned-divider"
@@ -240,7 +243,8 @@ function sectionAtSidebarSlot(items: readonly SidebarListItem[], index: number):
   for (let i = 0; i < index && i < items.length; i += 1) {
     const item = items[i]!;
     if (item.kind !== "marker") continue;
-    if (item.marker === "pinned-divider") section = "active";
+    if (item.marker === "needs-you-header") section = "needs-you";
+    else if (item.marker === "pinned-divider") section = "active";
     else if (item.marker === "working-header") section = "working";
     else if (item.marker === "snoozed-header") section = "snoozed";
     else if (item.marker === "settled-header") section = "settled";
@@ -265,13 +269,14 @@ export function resolveSidebarDropTarget(
   const moved = items.filter((_, index) => index !== activeIndex);
   moved.splice(overIndex, 0, items[activeIndex]!);
   const section = sectionAtSidebarSlot(moved, overIndex);
-  if (section === "working" || section === "snoozed") return null;
+  if (section === "needs-you" || section === "working" || section === "snoozed") return null;
   const pinnedOrder: string[] = [];
   const activeOrder: string[] = [];
   let currentSection: SidebarSection = "pinned";
   for (const item of moved) {
     if (item.kind === "marker") {
-      if (item.marker === "pinned-divider") currentSection = "active";
+      if (item.marker === "needs-you-header") currentSection = "needs-you";
+      else if (item.marker === "pinned-divider") currentSection = "active";
       else if (
         item.marker === "working-header" ||
         item.marker === "snoozed-header" ||
@@ -279,7 +284,7 @@ export function resolveSidebarDropTarget(
       )
         break;
     } else if (currentSection === "pinned") pinnedOrder.push(item.key);
-    else activeOrder.push(item.key);
+    else if (currentSection === "active") activeOrder.push(item.key);
   }
   return { section, pinnedOrder, activeOrder };
 }
@@ -313,7 +318,9 @@ export function resolveSidebarDropVerb(
   from: SidebarSection,
   to: SidebarSection | null,
 ): SidebarDropVerb | null {
-  if (to === null || to === from || to === "working" || to === "snoozed") return null;
+  if (to === null || to === from || to === "needs-you" || to === "working" || to === "snoozed") {
+    return null;
+  }
   if (to === "pinned") return "pin";
   if (to === "settled") return "settle";
   if (from === "pinned") return "unpin";
@@ -398,7 +405,7 @@ export function planSidebarThreadDrop(input: {
     activeKeysById,
     activeReorderableKeys,
   } = input;
-  if (activeSection === "working") return { kind: "none" };
+  if (activeSection === "working" || activeSection === "needs-you") return { kind: "none" };
   if (input.supportsSettlement === false && (target.section === "settled" || activeSettled)) {
     return { kind: "none" };
   }
@@ -1217,6 +1224,38 @@ export function resolveWindowTitleThreadStatus(
     default:
       return null;
   }
+}
+
+/** Blocked on the user, or a failure or limit they have not seen: the statuses that notify. */
+function sidebarThreadNeedsUser(thread: ThreadStatusInput & SidebarThreadStatusInput): boolean {
+  const status = resolveSidebarRowStatus(thread);
+  return (
+    status === "approval" ||
+    status === "input" ||
+    status === "request" ||
+    status === "limited" ||
+    status === "failed"
+  );
+}
+
+/** Splits the Active list into the Needs you shelf and the rest, keeping each list's order. */
+export function splitNeedsYouThreads<
+  T extends ThreadStatusInput &
+    SidebarThreadStatusInput & { readonly environmentId: EnvironmentId; readonly id: ThreadId },
+>(
+  threads: readonly T[],
+  localLastVisitedAtById: Readonly<Record<string, string>>,
+): { readonly needsYou: T[]; readonly rest: T[] } {
+  const needsYou: T[] = [];
+  const rest: T[] = [];
+  for (const thread of threads) {
+    const lastVisitedAt = resolveThreadLastVisitedAt(
+      thread.lastVisitedAt,
+      localLastVisitedAtById[scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))],
+    );
+    (sidebarThreadNeedsUser({ ...thread, lastVisitedAt }) ? needsYou : rest).push(thread);
+  }
+  return { needsYou, rest };
 }
 
 /**

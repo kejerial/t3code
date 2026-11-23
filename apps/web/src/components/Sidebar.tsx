@@ -195,6 +195,7 @@ import {
   resolveSidebarSweepKeys,
   resolveSidebarDropTarget,
   resolveSidebarDropVerb,
+  splitNeedsYouThreads,
   resolveSidebarThreadSection,
   resolveSidebarReorderableThreadKeys,
   searchSidebarThreads,
@@ -288,6 +289,7 @@ import {
 import {
   SidebarDragBoundary,
   SidebarSectionHeader,
+  SidebarStaticSectionHeader,
   SidebarSectionPlaceholder,
 } from "./sidebar/SidebarListMarkers";
 
@@ -516,8 +518,13 @@ function useSidebarThreads(input: {
     clockKey: `${nowMinute}:${snoozeWakeClock}:${inboxReturnsVersion}`,
   });
 
-  const { pinnedThreads, activeThreads, workingThreads, snoozedThreads, settledThreads } =
-    partition;
+  const localLastVisitedAtById = useUiStateStore((store) => store.threadLastVisitedAtById);
+  const { pinnedThreads, workingThreads, snoozedThreads, settledThreads } = partition;
+  // Folders already separate the work, so boring mode has no Needs you shelf either.
+  const { needsYou: needsYouThreads, rest: activeThreads } =
+    folderGroups === null
+      ? splitNeedsYouThreads(partition.activeThreads, localLastVisitedAtById)
+      : { needsYou: EMPTY_THREADS, rest: partition.activeThreads };
   // Older settled threads load in pages; the shelf lists them only as far as they are loaded.
   const olderSettledShelf = useOlderSettledShelf({
     scopes: olderSettledScopes([...serverConfigs.keys()], scopedProjectKeys),
@@ -572,6 +579,7 @@ function useSidebarThreads(input: {
         });
   const orderedThreads = [
     ...pinnedThreads,
+    ...needsYouThreads,
     ...(projectFolders === null
       ? activeThreads
       : projectFolders.flatMap((folder) => folder.threads)),
@@ -587,6 +595,7 @@ function useSidebarThreads(input: {
   const sectionByThreadKey = new Map<string, SidebarSection>();
   for (const [list, section] of [
     [pinnedThreads, "pinned"],
+    [needsYouThreads, "needs-you"],
     [activeThreads, "active"],
     [workingThreads, "working"],
     [snoozedThreads, "snoozed"],
@@ -596,10 +605,13 @@ function useSidebarThreads(input: {
   }
   return {
     ...partition,
+    needsYouThreads,
+    activeThreads,
     threads,
     workingShelfEnabled,
     searchableThreads: [
       ...pinnedThreads,
+      ...needsYouThreads,
       ...activeThreads,
       ...workingThreads,
       ...snoozedThreads,
@@ -1356,6 +1368,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     pinnedThreads,
     draggableThreadKeys,
     activeReorderableThreadKeys,
+    needsYouThreads,
     activeThreads,
     workingThreads,
     snoozedThreads,
@@ -1801,7 +1814,8 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
   const isContextDrag =
     projectFolders !== null ||
     dragState?.contextDrag === true ||
-    dragState?.activeSection === "working";
+    dragState?.activeSection === "working" ||
+    dragState?.activeSection === "needs-you";
   const dragTargetSection = isContextDrag ? null : (dragState?.targetSection ?? null);
   const finishThreadDrag = (started: boolean) => {
     dragSensorRef.current = null;
@@ -2057,6 +2071,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     if (
       !hasProjectFolders &&
       pinnedThreads.length +
+        needsYouThreads.length +
         activeThreads.length +
         workingThreads.length +
         snoozedThreads.length +
@@ -2068,8 +2083,15 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
     const items: SidebarListItem[] = [{ kind: "marker", marker: "pinned-header" }];
     const pinnedRows = rowsOf(pinnedThreads, "pinned");
     items.push(...pinnedRows);
+    if (needsYouThreads.length > 0) {
+      items.push({ kind: "marker", marker: "needs-you-header" });
+      items.push(...rowsOf(needsYouThreads, "needs-you"));
+    }
     items.push({ kind: "marker", marker: "pinned-divider" });
     const activeRows = rowsOf(activeThreads, "active");
+    if (needsYouThreads.length > 0 && activeThreads.length > 0) {
+      items.push({ kind: "marker", marker: "active-header" });
+    }
     items.push({ kind: "marker", marker: "active-placeholder" });
     items.push(...activeRows);
     if (workingThreads.length > 0) {
@@ -3469,6 +3491,7 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
           !hasProjectFolders &&
           visibleDraftSessionCount === 0 &&
           pinnedThreads.length +
+            needsYouThreads.length +
             activeThreads.length +
             workingThreads.length +
             snoozedThreads.length ===
@@ -3560,7 +3583,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                           scopeThreadRef(thread.environmentId, thread.id),
                         );
                         const isCard =
-                          section === "active" || section === "pinned" || section === "working";
+                          section === "active" ||
+                          section === "pinned" ||
+                          section === "needs-you" ||
+                          section === "working";
                         const rowVariant = folderRow ? "folder" : isCard ? "card" : "slim";
                         const childCount =
                           threadTree.childrenByParentKey.get(threadKey)?.length ?? 0;
@@ -3813,13 +3839,38 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                               />,
                             );
                             break;
+                          case "needs-you-header":
+                            items.push(
+                              <SidebarStaticSectionHeader
+                                key="needs-you-header"
+                                marker="needs-you-header"
+                                label={gt("Needs you", { $context: "sidebar section" })}
+                                count={needsYouThreads.length}
+                              />,
+                            );
+                            break;
                           case "pinned-divider":
                             items.push(
                               <SidebarDragBoundary
                                 key="pinned-divider"
                                 marker="pinned-divider"
                                 label={gt("Active", { $context: "sidebar section" })}
-                                visible={from !== null}
+                                // The Active header already names the drop zone below Needs you.
+                                visible={
+                                  from !== null &&
+                                  !(needsYouThreads.length > 0 && activeThreads.length > 0)
+                                }
+                                isDropTarget={dragTargetSection === "active"}
+                              />,
+                            );
+                            break;
+                          case "active-header":
+                            items.push(
+                              <SidebarStaticSectionHeader
+                                key="active-header"
+                                marker="active-header"
+                                label={gt("Active", { $context: "sidebar section" })}
+                                count={activeThreads.length}
                                 isDropTarget={dragTargetSection === "active"}
                               />,
                             );
