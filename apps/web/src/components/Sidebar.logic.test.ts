@@ -44,6 +44,7 @@ import {
   groupSidebarThreadsByProject,
   resolveSidebarFolderDot,
   sidebarFolderExpansionKeys,
+  splitNeedsYouThreads,
   withoutRemovedCheckout,
 } from "./Sidebar.logic";
 import { scopeThreadRef, scopedThreadKey } from "@t3tools/client-runtime/environment";
@@ -535,6 +536,66 @@ describe("resolveSidebarRowStatus", () => {
       expect(hasUnseenCompletion(stopped)).toBe(false);
       expect(resolveThreadStatusPill({ thread: stopped })).toMatchObject({ label: "Stopped" });
     }
+  });
+});
+
+describe("splitNeedsYouThreads", () => {
+  const runtime = (status: "running" | "idle" | "failed", lastErrorClass?: "usage_limit") => ({
+    status,
+    activeRunId: null,
+    providerInstanceId: ProviderInstanceId.make("codex"),
+    providerName: "Codex",
+    lastError: status === "failed" ? "Provider turn failed." : null,
+    ...(lastErrorClass ? { lastErrorClass } : {}),
+    updatedAt: "2026-03-09T10:05:00.000Z",
+  });
+  const thread = (id: string, overrides: object = {}) => ({
+    environmentId: localEnvironmentId,
+    id: ThreadId.make(id),
+    hasActionableProposedPlan: false,
+    hasPendingApprovals: false,
+    hasPendingUserInput: false,
+    interactionMode: "default" as const,
+    runtime: runtime("idle"),
+    latestRun: null,
+    lastVisitedAt: undefined,
+    ...overrides,
+  });
+  const failedRun = { ...makeLatestRun(), status: "failed" as const };
+
+  it("moves threads blocked on the user or an unseen failure out of Active, in order", () => {
+    const approval = thread("approval", { hasPendingApprovals: true });
+    const idle = thread("idle");
+    const input = thread("input", { hasPendingUserInput: true });
+    const working = thread("working", { runtime: runtime("running") });
+    const guest = thread("guest", { pendingGuestMessageCount: 1 });
+    const limited = thread("limited", { runtime: runtime("failed", "usage_limit") });
+    const failed = thread("failed", { runtime: runtime("failed"), latestRun: failedRun });
+    const seenFailure = thread("seen", {
+      runtime: runtime("failed"),
+      latestRun: failedRun,
+      lastVisitedAt: "2026-03-09T10:06:00.000Z",
+    });
+
+    expect(
+      splitNeedsYouThreads(
+        [approval, idle, input, working, guest, limited, failed, seenFailure],
+        {},
+      ),
+    ).toEqual({
+      needsYou: [approval, input, guest, limited, failed],
+      rest: [idle, working, seenFailure],
+    });
+  });
+
+  it("returns a failure to Active once this client opened it", () => {
+    const failed = thread("failed", { runtime: runtime("failed"), latestRun: failedRun });
+    const key = scopedThreadKey(scopeThreadRef(localEnvironmentId, failed.id));
+
+    expect(splitNeedsYouThreads([failed], {}).needsYou).toEqual([failed]);
+    expect(splitNeedsYouThreads([failed], { [key]: "2026-03-09T10:06:00.000Z" }).needsYou).toEqual(
+      [],
+    );
   });
 });
 
@@ -1382,6 +1443,39 @@ describe("Working shelf (beta)", () => {
         activeOrder: ["a1", "a2", "p1"],
       });
       expect(resolveSidebarDropVerb("active", "working")).toBeNull();
+    });
+
+    it("never drops into Needs you, and keeps its rows out of the inbox order", () => {
+      const withNeedsYou: readonly SidebarListItem[] = [
+        marker("pinned-header"),
+        row("p1", "pinned"),
+        marker("needs-you-header"),
+        row("n1", "needs-you"),
+        marker("pinned-divider"),
+        marker("active-header"),
+        row("a1", "active"),
+        marker("settled-header"),
+        row("s1", "settled"),
+      ];
+      expect(resolveSidebarDropTarget(withNeedsYou, "a1", "n1")).toBeNull();
+      expect(resolveSidebarDropTarget(withNeedsYou, "p1", "a1")).toEqual({
+        section: "active",
+        pinnedOrder: [],
+        activeOrder: ["a1", "p1"],
+      });
+      expect(resolveSidebarDropVerb("active", "needs-you")).toBeNull();
+      expect(
+        planSidebarThreadDrop({
+          activeKey: "n1",
+          activeSection: "needs-you",
+          target: resolveSidebarDropTarget(withNeedsYou, "n1", "s1")!,
+          pinnedOrder: ["p1"],
+          pinnedKeysById: new Map([["p1", "m"]]),
+          activeOrder: ["a1"],
+          activeKeysById: new Map([["a1", "f"]]),
+          activeTimeOrdered: true,
+        }),
+      ).toEqual({ kind: "none" });
     });
 
     it.each([
