@@ -1,3 +1,5 @@
+import { mFallback, msg } from "gt-i18n";
+import type { MFunctionType } from "gt-i18n/types";
 import type {
   EnvironmentId,
   OrchestrationV2ShellSnapshot,
@@ -157,6 +159,11 @@ function sideChatRequest(thread: OrchestrationV2ThreadShell): PendingSubagentReq
   return kind === "user_input" ? "user_input" : "approval";
 }
 
+const asksParent = (thread: OrchestrationV2ThreadShell) =>
+  subagentRequest(thread) !== null ||
+  sideChatRequest(thread) !== null ||
+  coordinatedApproval(thread);
+
 /**
  * The threads to flag for a subagent's live approval, up its
  * subagent chain and through a side chat to its parent. `delegated` are tasks this
@@ -215,22 +222,43 @@ export function childThreadInputsTitle(
   children: ReadonlyArray<
     Pick<EnvironmentThreadShell, "hasPendingApprovals" | "lineage" | "delegatedFrom">
   >,
+  resolve: MFunctionType = mFallback,
 ): string {
   const approvals = children.filter((child) => child.hasPendingApprovals).length;
   const need = approvals === 0 ? "input" : approvals === children.length ? "approval" : "you";
-  const nouns = new Set(
+  const kinds = new Set(
     children.map((child) =>
       child.lineage.sideChat === true
-        ? "side chat"
+        ? "sideChat"
         : child.lineage.relationshipToParent === "subagent" || child.delegatedFrom !== null
           ? "subagent"
           : "thread",
     ),
   );
-  const noun = nouns.size === 1 ? [...nouns][0]! : "thread";
-  return children.length === 1
-    ? `${noun[0]!.toUpperCase()}${noun.slice(1)} needs ${need}`
-    : `${children.length} ${noun}s need ${need}`;
+  const kind = kinds.size === 1 ? [...kinds][0]! : "thread";
+  const count = children.length;
+  if (count === 1 && kind === "thread") {
+    return resolve(
+      msg(
+        "{need, select, input {Thread needs input} approval {Thread needs approval} other {Thread needs you}}",
+        { need },
+      ),
+    );
+  }
+  if (count === 1) {
+    return resolve(
+      msg(
+        "{kind, select, sideChat {{need, select, input {Side chat needs input} approval {Side chat needs approval} other {Side chat needs you}}} other {{need, select, input {Subagent needs input} approval {Subagent needs approval} other {Subagent needs you}}}}",
+        { kind, need },
+      ),
+    );
+  }
+  return resolve(
+    msg(
+      "{kind, select, sideChat {{need, select, input {{count} side chats need input} approval {{count} side chats need approval} other {{count} side chats need you}}} subagent {{need, select, input {{count} subagents need input} approval {{count} subagents need approval} other {{count} subagents need you}}} other {{need, select, input {{count} threads need input} approval {{count} threads need approval} other {{count} threads need you}}}}",
+      { kind, need, count: String(count) },
+    ),
+  );
 }
 
 const sameWireThreadShell = Schema.toEquivalence(OrchestrationV2ThreadShell);
@@ -506,12 +534,23 @@ export function createEnvironmentThreadShellAtoms(input: {
     }).pipe(Atom.withLabel(`environment-quiet-thread-shell:${key}`));
   });
 
+  const hasChildThreadInputsAtom = Atom.make((get) => {
+    for (const environmentId of enabledEnvironmentIds(get(input.catalogValueAtom))) {
+      if (get(environmentThreadsAtom(environmentId)).some(asksParent)) return true;
+    }
+    return false;
+  }).pipe(Atom.withLabel("environment-has-child-thread-inputs"));
+
   // Child approvals and questions are hidden with their sidebar rows. Read their
   // shell summaries, without subscribing to every child transcript. A task
   // delegated to a linked environment is a child too, with its own subagents.
   const childThreadInputsAtomFamily = Atom.family((key: string) => {
     let previous: ReadonlyArray<EnvironmentThreadShell> = [];
     return Atom.make((get) => {
+      if (!get(hasChildThreadInputsAtom)) {
+        if (previous.length !== 0) previous = [];
+        return previous;
+      }
       const children = new Map<
         string,
         Array<{ environmentId: EnvironmentId; thread: OrchestrationV2ThreadShell }>
@@ -552,11 +591,7 @@ export function createEnvironmentThreadShellAtoms(input: {
           if (seen.has(childKey)) continue;
           seen.add(childKey);
           pending.push(childKey);
-          if (
-            subagentRequest(thread) !== null ||
-            sideChatRequest(thread) !== null ||
-            coordinatedApproval(thread)
-          ) {
+          if (asksParent(thread)) {
             next.push(
               scopedThread(environmentId, thread, get(pendingSubagentRequestsAtom(environmentId))),
             );

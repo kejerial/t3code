@@ -1,14 +1,12 @@
 import type { EnvironmentId, UsageLimitsReport } from "@t3tools/contracts";
 import type { TimestampFormat } from "@t3tools/contracts/settings";
-import {
-  formatResetsIn,
-  isMainUsageWindow,
-  limitsNotice,
-  remainingPercent,
-} from "@t3tools/shared/usageLimits";
+import { isMainUsageWindow, remainingPercent } from "@t3tools/shared/usageLimits";
+import { formatResetsIn, limitsNotice } from "@t3tools/shared/usageLimitsCopy";
+import { msg, T, useGT, useMessages } from "gt-react";
 import { ChevronRightIcon, GaugeIcon } from "lucide-react";
 import { useState } from "react";
 
+import { m, type MessageResolver } from "../../i18n/messages";
 import { ensureLocalApi } from "../../localApi";
 import { formatUpcomingTimestamp } from "../../timestampFormat";
 import { Button } from "../ui/button";
@@ -31,6 +29,7 @@ function accountLabel(account: UsageLimitsReport["accounts"][number]): string {
 }
 
 function AccountSummary({ account }: { readonly account: UsageLimitsReport["accounts"][number] }) {
+  const gt = useGT();
   const label = accountLabel(account);
   return (
     <>
@@ -38,9 +37,9 @@ function AccountSummary({ account }: { readonly account: UsageLimitsReport["acco
         <RedactedSensitiveText
           key={label}
           value={label}
-          ariaLabel="Toggle account label visibility"
-          revealTooltip="Click to reveal account"
-          hideTooltip="Click to hide account"
+          ariaLabel={gt("Toggle account label visibility")}
+          revealTooltip={gt("Click to reveal account")}
+          hideTooltip={gt("Click to hide account")}
           className="max-w-full truncate align-bottom font-sans text-xs leading-normal"
         />
       ) : (
@@ -56,21 +55,26 @@ export function usageLimitsBannerItem(
   report: UsageLimitsReport,
   environmentId: EnvironmentId,
   onDismiss: () => void,
+  resolve: MessageResolver = m,
 ): ComposerBannerStackItem {
   const [first] = report.accounts;
   const single = report.accounts.length === 1 && first ? first : null;
   const summary = single ? (
     <AccountSummary account={single} />
   ) : (
-    `${report.accounts.length} accounts`
+    resolve(
+      msg("{count, plural, one {{count} account} other {{count} accounts}}", {
+        count: report.accounts.length,
+      }),
+    )
   );
   return {
     id,
     variant: "info",
     icon: <GaugeIcon />,
-    title: "Usage limits",
+    title: resolve(msg("Usage limits")),
     description: summary,
-    dismissLabel: "Dismiss usage limits",
+    dismissLabel: resolve(msg("Dismiss usage limits")),
     onDismiss,
     children: <UsageLimitsBannerBody report={report} environmentId={environmentId} />,
   };
@@ -85,14 +89,18 @@ function PoolMembers({
   readonly members: readonly PoolMember[];
   readonly now: number;
 }) {
+  const gt = useGT();
+  const messages = useMessages();
   const [open, setOpen] = useState(false);
   const readable = members.filter((member) => limitsNotice(member.limits) === null).length;
   return (
     <div className="flex flex-col gap-1 text-xs">
       {readable > 1 ? (
         <span className="text-muted-foreground">
-          Average of {readable} accounts, weighted equally: the hub reports percent used, not plan
-          size.
+          {gt(
+            "Average of {readable} accounts, weighted equally: the hub reports percent used, not plan size.",
+            { readable },
+          )}
         </span>
       ) : null}
       <button
@@ -114,10 +122,12 @@ function PoolMembers({
               <li key={member.label} className="flex min-w-0 items-baseline gap-2">
                 <span className="min-w-0 truncate text-muted-foreground">{member.label}</span>
                 <span className="ms-auto shrink-0 text-foreground">
-                  {notice || !weekly ? "–" : `${remainingPercent(weekly)}% left`}
+                  {notice || !weekly
+                    ? "–"
+                    : gt("{remaining}% left", { remaining: remainingPercent(weekly) })}
                 </span>
                 <span className="w-24 shrink-0 text-right text-muted-foreground">
-                  {weekly && !notice ? (formatResetsIn(weekly, now) ?? "") : ""}
+                  {weekly && !notice ? (formatResetsIn(weekly, now, messages) ?? "") : ""}
                 </span>
               </li>
             );
@@ -128,35 +138,51 @@ function PoolMembers({
   );
 }
 
-export function modelFallbackBannerItem({
-  fallbackModelName,
-  defaultProviderName,
-  defaultModelName,
-  resetsAt,
-  timestampFormat,
-  onUseDefault,
-  onDismiss,
-}: {
-  readonly fallbackModelName: string;
-  readonly defaultProviderName: string;
-  readonly defaultModelName: string;
-  readonly resetsAt: string | null;
-  readonly timestampFormat: TimestampFormat;
-  readonly onUseDefault: () => void;
-  readonly onDismiss: () => void;
-}): ComposerBannerStackItem {
+export function modelFallbackBannerItem(
+  {
+    fallbackModelName,
+    defaultProviderName,
+    defaultModelName,
+    resetsAt,
+    timestampFormat,
+    onUseDefault,
+    onDismiss,
+  }: {
+    readonly fallbackModelName: string;
+    readonly defaultProviderName: string;
+    readonly defaultModelName: string;
+    readonly resetsAt: string | null;
+    readonly timestampFormat: TimestampFormat;
+    readonly onUseDefault: () => void;
+    readonly onDismiss: () => void;
+  },
+  resolve: MessageResolver = m,
+): ComposerBannerStackItem {
   return {
     id: "fallback-model",
     variant: "info",
     icon: <GaugeIcon />,
-    title: `Using ${fallbackModelName}`,
-    description: `${defaultProviderName} is out of usage${resetsAt ? ` · resets ${formatUpcomingTimestamp(resetsAt, timestampFormat)}` : ""}`,
+    title: resolve(msg("Using {model}", { model: fallbackModelName })),
+    description: resetsAt
+      ? resolve(
+          msg("{provider} is out of usage · resets {time}", {
+            provider: defaultProviderName,
+            time: formatUpcomingTimestamp(
+              resetsAt,
+              timestampFormat,
+              Date.now(),
+              undefined,
+              resolve,
+            ),
+          }),
+        )
+      : resolve(msg("{provider} is out of usage", { provider: defaultProviderName })),
     actions: (
       <Button size="xs" variant="ghost" onClick={onUseDefault}>
-        Use {defaultModelName}
+        {resolve(msg("Use {model}", { model: defaultModelName }))}
       </Button>
     ),
-    dismissLabel: "Dismiss fallback model notice",
+    dismissLabel: resolve(msg("Dismiss fallback model notice")),
     onDismiss,
   };
 }
@@ -168,6 +194,7 @@ function UsageLimitsBannerBody({
   readonly report: UsageLimitsReport;
   readonly environmentId: EnvironmentId;
 }) {
+  const messages = useMessages();
   const now = Date.parse(report.createdAt);
   return (
     <ComposerBanner.Scroll>
@@ -176,7 +203,7 @@ function UsageLimitsBannerBody({
           const resetCreditInput =
             account.resetCreditInput ??
             (account.instanceId ? { instanceId: account.instanceId } : undefined);
-          const notice = limitsNotice(account.limits);
+          const notice = limitsNotice(account.limits, messages);
           const externalUsage = account.limits.externalUsage;
           return (
             <div key={account.id} className="flex min-w-0 flex-col gap-1">
@@ -204,7 +231,7 @@ function UsageLimitsBannerBody({
                   className="self-start"
                   onClick={() => void ensureLocalApi().shell.openExternal(externalUsage.url)}
                 >
-                  Manage usage
+                  <T>Manage usage</T>
                 </Button>
               ) : null}
               {resetCreditInput && account.limits.resetCredits ? (

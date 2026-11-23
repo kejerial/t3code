@@ -31,3 +31,6 @@ export const SplitPaneContext = createContext<SplitPaneInfo>({
   aside: false,
   onClose: null,
 });
+
+/** True only for a thread kept mounted out of sight under Settings or Usage. */
+export const HiddenThreadContext = createContext(false);

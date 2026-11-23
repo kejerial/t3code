@@ -1,11 +1,8 @@
 import { providerClients } from "@t3tools/client-runtime/provider-clients";
 import type { EnvironmentId, UsageLimitsReport } from "@t3tools/contracts";
-import {
-  formatResetsIn,
-  isMainUsageWindow,
-  limitsNotice,
-  remainingPercent,
-} from "@t3tools/shared/usageLimits";
+import { isMainUsageWindow, limitsNotice, remainingPercent } from "@t3tools/shared/usageLimits";
+import { formatResetsIn } from "@t3tools/shared/usageLimitsCopy";
+import { T, useGT, useMessages } from "gt-react-native";
 import { Pressable, ScrollView, View } from "react-native";
 
 import { SymbolView } from "../../components/ui/AppSymbol";
@@ -21,13 +18,17 @@ function PoolMembers({
   readonly members: readonly PoolMember[];
   readonly now: number;
 }) {
+  const gt = useGT();
+  const m = useMessages();
   const readable = members.filter((member) => limitsNotice(member.limits) === null).length;
   return (
     <View className="gap-1 pt-1">
       {readable > 1 ? (
         <Text className="text-xs text-foreground-tertiary">
-          Average of {readable} accounts, weighted equally: the hub reports percent used, not plan
-          size.
+          {gt(
+            "Average of {readable} accounts, weighted equally: the hub reports percent used, not plan size.",
+            { readable },
+          )}
         </Text>
       ) : null}
       {members.map((member) => {
@@ -40,10 +41,12 @@ function PoolMembers({
               {member.label}
             </Text>
             <Text className="text-xs tabular-nums text-foreground">
-              {readableWeekly ? `${remainingPercent(readableWeekly)}% left` : "–"}
+              {readableWeekly
+                ? gt("{remaining}% left", { remaining: remainingPercent(readableWeekly) })
+                : "–"}
             </Text>
             <Text className="w-24 text-right text-xs tabular-nums text-foreground-tertiary">
-              {readableWeekly ? (formatResetsIn(readableWeekly, now) ?? "") : ""}
+              {readableWeekly ? (formatResetsIn(readableWeekly, now, m) ?? "") : ""}
             </Text>
           </View>
         );
@@ -63,10 +66,11 @@ export function ComposerUsageLimits({
   readonly maxHeight: number;
   readonly onClose: () => void;
 }) {
+  const gt = useGT();
   const now = Date.parse(report.createdAt);
   const close = (
     <Pressable
-      accessibilityLabel="Dismiss usage limits"
+      accessibilityLabel={gt("Dismiss usage limits")}
       accessibilityRole="button"
       hitSlop={12}
       onPress={onClose}
@@ -121,7 +125,9 @@ export function ComposerUsageLimits({
         })}
         {report.accounts.length === 0 ? (
           <View className="flex-row items-center gap-3 px-4 pt-3">
-            <Text className="min-w-0 flex-1 text-base text-foreground">Usage limits</Text>
+            <Text className="min-w-0 flex-1 text-base text-foreground">
+              <T>Usage limits</T>
+            </Text>
             {close}
           </View>
         ) : null}
