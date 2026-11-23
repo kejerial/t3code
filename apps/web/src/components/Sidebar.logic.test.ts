@@ -599,7 +599,7 @@ describe("splitNeedsYouThreads", () => {
     );
   });
 
-  it("orders folder threads: needs you, then Done, then working, then the rest", () => {
+  it("orders folder threads: needs you, then working, then Done, then idle", () => {
     const idle = thread("idle");
     const working = thread("working", { runtime: runtime("running") });
     const done = thread("done", {
@@ -618,8 +618,8 @@ describe("splitNeedsYouThreads", () => {
     expect(sortFolderThreadsByStatus([idle, working, done, seen, input, failed], {})).toEqual([
       input,
       failed,
-      done,
       working,
+      done,
       idle,
       seen,
     ]);

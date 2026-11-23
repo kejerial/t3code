@@ -91,6 +91,7 @@ import {
   hasUnseenCompletion,
   resolveSidebarRowAccessibility,
   type SidebarDropVerb,
+  resolveSidebarFolderBand,
   resolveSidebarRowStatus,
   resolveThreadLastVisitedAt,
   shouldRecedeSidebarThread,
@@ -752,13 +753,20 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
     wokeAtDate !== null &&
     (lastVisitedDate === null || lastVisitedDate < wokeAtDate) &&
     thread.settledOverride !== "settled";
-  const shouldRecede = shouldRecedeSidebarThread({
-    status,
-    isUnread,
-    isWoke,
-    isActive: props.isActive,
-    isSelected,
-  });
+  const folderBand =
+    variant === "folder" ? resolveSidebarFolderBand({ ...thread, lastVisitedAt }) : null;
+  // Folder rows fade only when idle, so working rows read apart from finished ones.
+  const shouldRecede =
+    folderBand === null
+      ? shouldRecedeSidebarThread({
+          status,
+          isUnread,
+          isWoke,
+          isActive: props.isActive,
+          isSelected,
+        })
+      : folderBand === "idle" && !isWoke && !props.isActive && !isSelected;
+  const needsYouFill = folderBand === "needs-you" && !props.isActive && !isSelected;
   const topStatus =
     status === "preparing" || status === "working"
       ? {
@@ -997,6 +1005,7 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
           : shouldRecede
             ? "text-sidebar-muted-foreground/75 hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
             : "bg-transparent text-sidebar-foreground hover:bg-sidebar-row-hover",
+    needsYouFill && "bg-destructive/10 hover:bg-destructive/15 dark:bg-destructive/18",
     shouldRecede &&
       (status === "preparing" || status === "working") &&
       "opacity-70 transition-opacity hover:opacity-100 focus-within:opacity-100 motion-reduce:transition-none",
