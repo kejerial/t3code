@@ -1241,35 +1241,43 @@ function sidebarThreadNeedsUser(thread: ThreadStatusInput & SidebarThreadStatusI
   return sidebarStatusNeedsUser(resolveSidebarRowStatus(thread));
 }
 
-/**
- * Project folder order: threads that need you, then Done, then busy ones, then
- * the rest. Each band keeps the input order.
- */
+const SIDEBAR_FOLDER_BANDS = ["needs-you", "working", "done", "idle"] as const;
+export type SidebarFolderBand = (typeof SIDEBAR_FOLDER_BANDS)[number];
+
+/** A project folder row's band, which sets both its place and its look. */
+export function resolveSidebarFolderBand(
+  thread: ThreadStatusInput & SidebarThreadStatusInput,
+): SidebarFolderBand {
+  const status = resolveSidebarRowStatus(thread);
+  if (sidebarStatusNeedsUser(status)) return "needs-you";
+  // Waiting on a child thread is still a busy turn; an idle session is not.
+  if (
+    status === "working" ||
+    status === "preparing" ||
+    (status === "waiting" && thread.runtime?.status === "running")
+  ) {
+    return "working";
+  }
+  if (status === "ready" && hasUnseenCompletion(thread)) return "done";
+  return "idle";
+}
+
+/** Project folder order: needs you, working, Done, idle. Each band keeps the input order. */
 export function sortFolderThreadsByStatus<
   T extends ThreadStatusInput &
     SidebarThreadStatusInput & { readonly environmentId: EnvironmentId; readonly id: ThreadId },
 >(threads: readonly T[], localLastVisitedAtById: Readonly<Record<string, string>>): T[] {
-  const bandOf = (thread: T): number => {
-    const lastVisitedAt = resolveThreadLastVisitedAt(
-      thread.lastVisitedAt,
-      localLastVisitedAtById[scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))],
-    );
-    const visited = { ...thread, lastVisitedAt };
-    const status = resolveSidebarRowStatus(visited);
-    if (sidebarStatusNeedsUser(status)) return 0;
-    if (status === "ready" && hasUnseenCompletion(visited)) return 1;
-    // Waiting on a child thread is still a busy turn; an idle session is not.
-    if (
-      status === "working" ||
-      status === "preparing" ||
-      (status === "waiting" && thread.runtime?.status === "running")
-    ) {
-      return 2;
-    }
-    return 3;
-  };
-  const bands = new Map(threads.map((thread) => [thread, bandOf(thread)]));
-  return threads.toSorted((left, right) => bands.get(left)! - bands.get(right)!);
+  const ranks = new Map(
+    threads.map((thread) => {
+      const lastVisitedAt = resolveThreadLastVisitedAt(
+        thread.lastVisitedAt,
+        localLastVisitedAtById[scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))],
+      );
+      const band = resolveSidebarFolderBand({ ...thread, lastVisitedAt });
+      return [thread, SIDEBAR_FOLDER_BANDS.indexOf(band)];
+    }),
+  );
+  return threads.toSorted((left, right) => ranks.get(left)! - ranks.get(right)!);
 }
 
 /** Splits the Active list into the Needs you shelf and the rest, keeping each list's order. */
