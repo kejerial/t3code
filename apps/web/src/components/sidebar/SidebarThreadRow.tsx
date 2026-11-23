@@ -1403,10 +1403,16 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                     </Tooltip>
                   ) : inFolder && topStatus ? (
                     // Folder rows have no status line, so the status takes the time slot.
-                    // Icon only, so the title keeps the width. The row's accessible
-                    // name already includes the status label.
-                    <span className={cn("inline-flex items-center", topStatus.className)}>
-                      <TopStatusIcon icon={topStatus.icon} className="size-3.5" />
+                    // The row's accessible name already includes the status label.
+                    <span
+                      aria-hidden
+                      className={cn(
+                        "inline-flex items-center gap-1 text-xs font-medium",
+                        topStatus.className,
+                      )}
+                    >
+                      <TopStatusIcon icon={topStatus.icon} className="size-3" />
+                      {topStatus.label}
                     </span>
                   ) : (
                     <span className="text-xs">
