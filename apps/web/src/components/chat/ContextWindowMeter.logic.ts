@@ -1,4 +1,6 @@
 import type { ModelSelection, ProviderInstanceId } from "@t3tools/contracts";
+import { msg } from "gt-react";
+import { getActiveLocale, m, type MessageResolver } from "~/i18n/messages";
 import { type ProviderInstanceEntry } from "../../providerInstances";
 import { getDisplayModelName, type ModelEsque } from "./providerIconUtils";
 
@@ -26,13 +28,23 @@ export function resolveContextWindowModelDisplayName(
 export function formatContextWindowCompactionMessage(
   modelDisplayName: string | null | undefined,
   autoCompactThreshold?: number | null,
+  resolve: MessageResolver = m,
+  locale: string = getActiveLocale(),
 ): string {
   if (typeof autoCompactThreshold === "number" && autoCompactThreshold > 0) {
-    return `Compacts automatically at about ${autoCompactThreshold.toLocaleString("en-US")} tokens.`;
+    return resolve(
+      msg("Compacts automatically at about {tokens} tokens.", {
+        tokens: autoCompactThreshold.toLocaleString(locale),
+      }),
+    );
   }
   return modelDisplayName
-    ? `Context for ${modelDisplayName} compacts automatically when needed.`
-    : "Context compacts automatically when needed.";
+    ? resolve(
+        msg("Context for {model} compacts automatically when needed.", {
+          model: modelDisplayName,
+        }),
+      )
+    : resolve(msg("Context compacts automatically when needed."));
 }
 
 export function formatContextWindowCost(cost: {

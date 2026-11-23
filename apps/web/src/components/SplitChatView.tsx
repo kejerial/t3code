@@ -1,6 +1,7 @@
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import type { ScopedThreadRef } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
+import { useGT } from "gt-react";
 import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 
 import { useMediaQuery } from "../hooks/useMediaQuery";
@@ -17,7 +18,11 @@ import {
   type SplitViewLayout,
 } from "../splitViewStore";
 import { buildThreadRouteParams, type ThreadRouteTarget } from "../threadRoutes";
-import { BackgroundThreadContext, SplitPaneContext } from "./chat/backgroundThread";
+import {
+  BackgroundThreadContext,
+  HiddenThreadContext,
+  SplitPaneContext,
+} from "./chat/backgroundThread";
 import { threadContextDropTargetProps, useThreadContextDrop } from "./chat/threadContextDrag";
 import { ThreadRouteView } from "./ThreadRouteView";
 import { Sheet, SheetPopup } from "./ui/sheet";
@@ -52,6 +57,7 @@ export function SplitChatView({
   target: ThreadRouteTarget;
   background: boolean;
 }) {
+  const gt = useGT();
   const navigate = useNavigate();
   const splitEnabled = useMediaQuery("lg");
   const stored = useSplitViewStore((state) => state.layout);
@@ -168,7 +174,7 @@ export function SplitChatView({
                 key={`handle:${pane.id}`}
                 role="separator"
                 aria-orientation="vertical"
-                aria-label="Resize panes"
+                aria-label={gt("Resize panes")}
                 aria-valuenow={Math.round(
                   ((sizes[index - 1] ?? 0) / ((sizes[index - 1] ?? 0) + (sizes[index] ?? 0))) * 100,
                 )}
@@ -321,11 +327,13 @@ function SplitPane({
             onClose,
           }}
         >
-          <ThreadRouteView
-            target={pane.target}
-            routed={focused && !background}
-            onMissing={focused ? noop : onMissing}
-          />
+          <HiddenThreadContext value={background}>
+            <ThreadRouteView
+              target={pane.target}
+              routed={focused && !background}
+              onMissing={focused ? noop : onMissing}
+            />
+          </HiddenThreadContext>
         </SplitPaneContext>
       </BackgroundThreadContext>
       {count > 1 ? (

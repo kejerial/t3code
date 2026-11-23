@@ -1,11 +1,14 @@
 import { useAtomValue } from "@effect/atom-react";
 import type { ServerProvider, ServerProviderUsageWindow } from "@t3tools/contracts";
-import { formatResetsIn, remainingPercent } from "@t3tools/shared/usageLimits";
+import { remainingPercent } from "@t3tools/shared/usageLimits";
+import { formatResetsIn } from "@t3tools/shared/usageLimitsCopy";
 import * as Schema from "effect/Schema";
+import { msg, T, useGT } from "gt-react";
 import { ChevronRightIcon } from "lucide-react";
 import { memo } from "react";
 
 import { useLocalStorage } from "../../hooks/useLocalStorage";
+import { m } from "../../i18n/messages";
 import { useNowMinute } from "../../hooks/useNowMinute";
 import { usePrimarySettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
@@ -68,17 +71,21 @@ function WindowTooltip({
     ? formatUpcomingTimestamp(window.resetsAt, timestampFormat, now)
     : null;
   const resetsIn = formatResetsIn(window, now);
+  const gt = useGT();
   return (
     <Tooltip>
       <TooltipTrigger render={children} />
       <TooltipPopup side="right">
         <div className="flex flex-col gap-0.5">
           <span className="text-foreground">
-            {window.label}: {remainingPercent(window)}% left
+            {gt("{label}: {remaining}% left", {
+              label: window.label,
+              remaining: remainingPercent(window),
+            })}
           </span>
           {resetsAt ? (
             <span className="text-muted-foreground">
-              Resets {resetsAt}
+              {gt("Resets {time}", { time: resetsAt })}
               {resetsIn ? ` · ${resetsIn}` : ""}
             </span>
           ) : null}
@@ -157,8 +164,13 @@ function CollapsedAccount({
 
 function poolDescription(pool: SidebarUsagePool) {
   return pool.readableCount > 1
-    ? `Average of ${pool.readableCount} accounts on ${pool.sourceLabel}, weighted equally: the hub reports percent used, not plan size. Resets show the next account to reset.`
-    : `Through ${pool.sourceLabel}.`;
+    ? m(
+        msg(
+          "Average of {count} accounts on {source}, weighted equally: the hub reports percent used, not plan size. Resets show the next account to reset.",
+          { count: pool.readableCount, source: pool.sourceLabel },
+        ),
+      )
+    : m(msg("Through {source}.", { source: pool.sourceLabel }));
 }
 
 function WindowRow({
@@ -194,6 +206,7 @@ function WindowRow({
 }
 
 function PoolMembers({ pool, now }: { readonly pool: SidebarUsagePool; readonly now: number }) {
+  const gt = useGT();
   const [open, setOpen] = useLocalStorage(SIDEBAR_USAGE_POOL_MEMBERS_KEY, true, Schema.Boolean);
   return (
     <div className="flex flex-col gap-1">
@@ -238,7 +251,7 @@ function PoolMembers({ pool, now }: { readonly pool: SidebarUsagePool; readonly 
                     <span className="text-muted-foreground">
                       {member.window
                         ? windowSummary(member.window, now)
-                        : "The hub could not read this account's usage."}
+                        : gt("The hub could not read this account's usage.")}
                     </span>
                   </div>
                 </TooltipPopup>
@@ -302,6 +315,7 @@ export const SidebarUsageLimits = memo(function SidebarUsageLimits() {
   const presentations = useAtomValue(environmentPresentations.presentationsWithProvidersAtom);
   const nowMinute = useNowMinute();
   const [expanded, setExpanded] = useLocalStorage(SIDEBAR_USAGE_EXPANDED_KEY, true, Schema.Boolean);
+  const gt = useGT();
   const now = Date.parse(`${nowMinute}:00.000Z`);
   const { pools, accounts } = sidebarUsage(presentations, now);
   if (pools.length === 0 && accounts.length === 0) return null;
@@ -309,13 +323,13 @@ export const SidebarUsageLimits = memo(function SidebarUsageLimits() {
   const Pool = expanded ? ExpandedPool : CollapsedPool;
 
   return (
-    <section aria-label="Usage limits" className="mx-0.5 flex flex-col pb-1">
+    <section aria-label={gt("Usage limits")} className="mx-0.5 flex flex-col pb-1">
       <CollapsibleSectionHeader
         expanded={expanded}
         onClick={() => setExpanded((value) => !value)}
         data-testid="sidebar-usage-toggle"
       >
-        Usage
+        <T>Usage</T>
       </CollapsibleSectionHeader>
       <ul className={cn("flex flex-col px-2", expanded ? "gap-3 pt-0.5" : "gap-1.5")}>
         {pools.map((pool) => (

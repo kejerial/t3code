@@ -3,6 +3,7 @@ import type {
   UnifiedSettings,
   UsageLimitSourceId,
 } from "@t3tools/contracts";
+import { T, useGT, Var } from "gt-react";
 import { useState } from "react";
 
 import { Button } from "../ui/button";
@@ -38,6 +39,7 @@ export function ProviderHubPicker({
   readonly readOnly?: boolean;
   readonly onChange: (next: ProviderInstanceConfig) => void;
 }) {
+  const gt = useGT();
   const hubs = Object.entries(sources) as Array<
     [UsageLimitSourceId, UnifiedSettings["usageLimitSources"][UsageLimitSourceId]]
   >;
@@ -51,15 +53,18 @@ export function ProviderHubPicker({
   if (linkedId) {
     return (
       <SettingsRow
-        title={linked ? `Routed through ${hubLabel(linked)}` : "Hub removed"}
+        title={linked ? gt("Routed through {hub}", { hub: hubLabel(linked) }) : gt("Hub removed")}
         description={
           linked ? (
-            <>
-              Requests go to <code>{linked.url}</code>. The hub picks the account; usage shows its
-              pooled quota.
-            </>
+            <T>
+              Requests go to{" "}
+              <code>
+                <Var>{linked.url}</Var>
+              </code>
+              . The hub picks the account; usage shows its pooled quota.
+            </T>
           ) : (
-            "The hub this instance used was removed. Stop using it, or add the hub again."
+            gt("The hub this instance used was removed. Stop using it, or add the hub again.")
           )
         }
         control={
@@ -69,7 +74,7 @@ export function ProviderHubPicker({
             disabled={readOnly}
             onClick={() => onChange(stopRoutingThroughHub(instance))}
           >
-            Stop using hub
+            <T>Stop using hub</T>
           </Button>
         }
       />
@@ -79,8 +84,10 @@ export function ProviderHubPicker({
   if (hubs.length === 0) {
     return (
       <SettingsRow
-        title="Route through a hub"
-        description="Add a CLIProxyAPI hub under Usage providers first. This instance can then send its requests through it and show the hub's pooled quota."
+        title={gt("Route through a hub")}
+        description={gt(
+          "Add a CLIProxyAPI hub under Usage providers first. This instance can then send its requests through it and show the hub's pooled quota.",
+        )}
       />
     );
   }
@@ -88,14 +95,20 @@ export function ProviderHubPicker({
   const canUse = selected !== undefined && (accessKey.trim().length > 0 || keyStored);
   return (
     <SettingsRow
-      title="Route through a hub"
+      title={gt("Route through a hub")}
       description={
-        <>
+        <T>
           Send requests through a CLIProxyAPI hub, which picks the account. This sets{" "}
-          <code>{HUB_BASE_URL_VARIABLE}</code> and stores the hub access key (an entry under{" "}
-          <code>api-keys</code> in its config, not the management key) as a sensitive{" "}
-          <code>{HUB_TOKEN_VARIABLE}</code>.
-        </>
+          <code>
+            <Var>{HUB_BASE_URL_VARIABLE}</Var>
+          </code>{" "}
+          and stores the hub access key (an entry under <code>api-keys</code> in its config, not the
+          management key) as a sensitive{" "}
+          <code>
+            <Var>{HUB_TOKEN_VARIABLE}</Var>
+          </code>
+          .
+        </T>
       }
     >
       <div className="mt-3 flex min-w-0 flex-wrap items-center gap-2 pb-2">
@@ -106,8 +119,8 @@ export function ProviderHubPicker({
             if (value !== null) setSelectedId(value as UsageLimitSourceId);
           }}
         >
-          <SelectTrigger aria-label="Hub" className="min-w-40" size="sm">
-            <SelectValue>{selected ? hubLabel(selected[1]) : "Choose a hub"}</SelectValue>
+          <SelectTrigger aria-label={gt("Hub")} className="min-w-40" size="sm">
+            <SelectValue>{selected ? hubLabel(selected[1]) : gt("Choose a hub")}</SelectValue>
           </SelectTrigger>
           <SelectPopup>
             {hubs.map(([id, source]) => (
@@ -120,8 +133,8 @@ export function ProviderHubPicker({
         <SecretInput
           size="sm"
           className="min-w-0 flex-1"
-          aria-label="Hub access key"
-          placeholder="Hub access key"
+          aria-label={gt("Hub access key")}
+          placeholder={gt("Hub access key")}
           configured={keyStored}
           disabled={readOnly}
           value={accessKey}
@@ -136,7 +149,7 @@ export function ProviderHubPicker({
             setAccessKey("");
           }}
         >
-          Use hub
+          <T>Use hub</T>
         </Button>
       </div>
     </SettingsRow>
