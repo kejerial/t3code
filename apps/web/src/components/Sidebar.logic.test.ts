@@ -44,6 +44,7 @@ import {
   groupSidebarThreadsByProject,
   resolveSidebarFolderDot,
   sidebarFolderExpansionKeys,
+  sortFolderThreadsByStatus,
   splitNeedsYouThreads,
   withoutRemovedCheckout,
 } from "./Sidebar.logic";
@@ -596,6 +597,41 @@ describe("splitNeedsYouThreads", () => {
     expect(splitNeedsYouThreads([failed], { [key]: "2026-03-09T10:06:00.000Z" }).needsYou).toEqual(
       [],
     );
+  });
+
+  it("orders folder threads: needs you, then Done, then working, then the rest", () => {
+    const idle = thread("idle");
+    const working = thread("working", { runtime: runtime("running") });
+    const done = thread("done", {
+      runtime: null,
+      latestRun: makeLatestRun(),
+      lastVisitedAt: "2026-03-09T10:04:00.000Z",
+    });
+    const seen = thread("seen", {
+      runtime: null,
+      latestRun: makeLatestRun(),
+      lastVisitedAt: "2026-03-09T10:06:00.000Z",
+    });
+    const input = thread("input", { hasPendingUserInput: true });
+    const failed = thread("failed", { runtime: runtime("failed"), latestRun: failedRun });
+
+    expect(sortFolderThreadsByStatus([idle, working, done, seen, input, failed], {})).toEqual([
+      input,
+      failed,
+      done,
+      working,
+      idle,
+      seen,
+    ]);
+    // Without a server visit, this client's visit decides whether it is still Done.
+    const local = thread("local", { runtime: null, latestRun: makeLatestRun() });
+    const localKey = scopedThreadKey(scopeThreadRef(localEnvironmentId, local.id));
+    expect(
+      sortFolderThreadsByStatus([idle, local], { [localKey]: "2026-03-09T10:04:00.000Z" }),
+    ).toEqual([local, idle]);
+    expect(
+      sortFolderThreadsByStatus([idle, local], { [localKey]: "2026-03-09T10:06:00.000Z" }),
+    ).toEqual([idle, local]);
   });
 });
 

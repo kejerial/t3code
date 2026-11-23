@@ -1227,8 +1227,7 @@ export function resolveWindowTitleThreadStatus(
 }
 
 /** Blocked on the user, or a failure or limit they have not seen: the statuses that notify. */
-function sidebarThreadNeedsUser(thread: ThreadStatusInput & SidebarThreadStatusInput): boolean {
-  const status = resolveSidebarRowStatus(thread);
+function sidebarStatusNeedsUser(status: SidebarThreadStatus): boolean {
   return (
     status === "approval" ||
     status === "input" ||
@@ -1236,6 +1235,41 @@ function sidebarThreadNeedsUser(thread: ThreadStatusInput & SidebarThreadStatusI
     status === "limited" ||
     status === "failed"
   );
+}
+
+function sidebarThreadNeedsUser(thread: ThreadStatusInput & SidebarThreadStatusInput): boolean {
+  return sidebarStatusNeedsUser(resolveSidebarRowStatus(thread));
+}
+
+/**
+ * Project folder order: threads that need you, then Done, then busy ones, then
+ * the rest. Each band keeps the input order.
+ */
+export function sortFolderThreadsByStatus<
+  T extends ThreadStatusInput &
+    SidebarThreadStatusInput & { readonly environmentId: EnvironmentId; readonly id: ThreadId },
+>(threads: readonly T[], localLastVisitedAtById: Readonly<Record<string, string>>): T[] {
+  const bandOf = (thread: T): number => {
+    const lastVisitedAt = resolveThreadLastVisitedAt(
+      thread.lastVisitedAt,
+      localLastVisitedAtById[scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))],
+    );
+    const visited = { ...thread, lastVisitedAt };
+    const status = resolveSidebarRowStatus(visited);
+    if (sidebarStatusNeedsUser(status)) return 0;
+    if (status === "ready" && hasUnseenCompletion(visited)) return 1;
+    // Waiting on a child thread is still a busy turn; an idle session is not.
+    if (
+      status === "working" ||
+      status === "preparing" ||
+      (status === "waiting" && thread.runtime?.status === "running")
+    ) {
+      return 2;
+    }
+    return 3;
+  };
+  const bands = new Map(threads.map((thread) => [thread, bandOf(thread)]));
+  return threads.toSorted((left, right) => bands.get(left)! - bands.get(right)!);
 }
 
 /** Splits the Active list into the Needs you shelf and the rest, keeping each list's order. */
