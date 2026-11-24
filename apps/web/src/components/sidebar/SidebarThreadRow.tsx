@@ -781,9 +781,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         }
       : status === "waiting"
         ? {
-            label: gt("Waiting", { $context: "thread status" }),
-            icon: "waiting" as const,
-            className: "text-muted-foreground",
+            // Subagents or child threads still run for it, so it reads as busy.
+            label: gt("Working", { $context: "thread status" }),
+            icon: "working" as const,
+            className: "text-info-foreground",
           }
         : status === "approval"
           ? {
