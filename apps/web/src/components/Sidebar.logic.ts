@@ -1257,14 +1257,8 @@ export function resolveSidebarFolderBand(
 ): SidebarFolderBand {
   const status = resolveSidebarRowStatus(thread);
   if (sidebarStatusNeedsUser(status)) return "needs-you";
-  // Waiting on a child thread is still a busy turn; an idle session is not.
-  if (
-    status === "working" ||
-    status === "preparing" ||
-    (status === "waiting" && thread.runtime?.status === "running")
-  ) {
-    return "working";
-  }
+  // Waiting means a subagent, background task, or child thread still runs for this thread.
+  if (status === "working" || status === "preparing" || status === "waiting") return "working";
   if (status === "ready" && hasUnseenCompletion(thread)) return "done";
   return "idle";
 }
