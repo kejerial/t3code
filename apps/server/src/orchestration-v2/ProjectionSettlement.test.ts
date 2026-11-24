@@ -526,3 +526,83 @@ it.effect("sql: a subagent thread becomes a candidate once its parent is done", 
     assert.deepEqual(new Set(yield* ids()), new Set([child, orphan]));
   }).pipe(Effect.provide(layerSql)),
 );
+
+it.effect("sql: a finished run whose last reply asks the user stays out of auto-settle", () =>
+  Effect.gen(function* () {
+    const store = yield* ProjectionStore.ProjectionStoreV2;
+    const reply = (
+      threadId: ThreadId,
+      runId: RunId,
+      name: string,
+      text: string,
+      at: DateTime.Utc,
+    ) =>
+      store.apply({
+        id: EventId.make(`event:asks:${threadId}:${name}`),
+        type: "message.updated",
+        threadId,
+        occurredAt: at,
+        payload: {
+          createdBy: "agent",
+          creationSource: "provider",
+          id: MessageId.make(`message:asks:${threadId}:${name}`),
+          threadId,
+          runId,
+          nodeId: null,
+          role: "assistant",
+          text,
+          attachments: [],
+          streaming: false,
+          createdAt: at,
+          updatedAt: at,
+        },
+      });
+    const earlier = DateTime.subtract(now, { hours: 1 });
+    const cases = [
+      ["question", "completed", ["Pick one?\n\n<!-- notify: QUESTION -->\n"], true],
+      ["blocked", "completed", ["Sign in first.\n<!-- notify: BLOCKED -->"], true],
+      ["stalled", "completed", ["The build hangs.\n<!-- notify: STALLED -->"], true],
+      ["done", "completed", ["Shipped.\n<!-- notify: DONE -->"], false],
+      ["unmarked", "completed", ["Should I merge it?"], false],
+      ["not-last-line", "completed", ["<!-- notify: QUESTION -->\nMore text."], false],
+      [
+        "earlier-reply",
+        "completed",
+        ["Which one?\n<!-- notify: QUESTION -->", "Picked one myself."],
+        false,
+      ],
+      ["failed", "failed", ["Which one?\n<!-- notify: QUESTION -->"], false],
+    ] as const;
+    const expected = new Map<ThreadId, boolean>();
+    for (const [name, status, replies, asks] of cases) {
+      const threadId = yield* createThread(`asks-${name}`);
+      const runId = yield* createRun(threadId, status);
+      for (const [index, text] of replies.entries()) {
+        yield* reply(threadId, runId, String(index), text, index === 0 ? earlier : now);
+      }
+      expected.set(threadId, asks);
+    }
+    const answered = yield* createThread("asks-answered");
+    yield* reply(
+      answered,
+      yield* createRun(answered),
+      "question",
+      "Which one?\n<!-- notify: QUESTION -->",
+      earlier,
+    );
+    yield* createRun(answered, "completed", 2);
+    expected.set(answered, false);
+
+    const snapshot = yield* store.getShellSnapshot();
+    const candidates = new Set((yield* store.getSettlementCandidates()).map((row) => row.id));
+    for (const [threadId, asks] of expected) {
+      const shell = snapshot.threads.find((thread) => thread.id === threadId)!;
+      const projected = ProjectionStore.threadShellFromProjection(
+        yield* store.getThreadProjection(threadId),
+      );
+      assert.equal(shell.latestRunAsksUser, asks, `${threadId} shell`);
+      assert.equal(projected.latestRunAsksUser, asks, `${threadId} projection`);
+      assert.equal(candidates.has(threadId), !asks, `${threadId} settlement`);
+    }
+  }).pipe(Effect.provide(layerSql)),
+);
