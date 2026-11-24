@@ -781,9 +781,10 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
         }
       : status === "waiting"
         ? {
-            label: gt("Waiting", { $context: "thread status" }),
-            icon: "waiting" as const,
-            className: "text-muted-foreground",
+            // Subagents or child threads still run for it, so it reads as busy.
+            label: gt("Working", { $context: "thread status" }),
+            icon: "working" as const,
+            className: "text-info-foreground",
           }
         : status === "approval"
           ? {
@@ -797,37 +798,45 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 icon: "input" as const,
                 className: "text-indigo-600 dark:text-indigo-300",
               }
-            : status === "request"
+            : status === "question"
               ? {
-                  label: gt("Request", { $context: "thread status: guest request" }),
-                  icon: "request" as const,
-                  className: "text-guest-foreground",
+                  label: gt("Question", {
+                    $context: "thread status: the agent's last reply asks the user to answer",
+                  }),
+                  icon: "input" as const,
+                  className: "text-indigo-600 dark:text-indigo-300",
                 }
-              : status === "limited"
+              : status === "request"
                 ? {
-                    label: gt("Limited", { $context: "thread status: usage limited" }),
-                    icon: "failed" as const,
-                    className: "text-warning-foreground",
+                    label: gt("Request", { $context: "thread status: guest request" }),
+                    icon: "request" as const,
+                    className: "text-guest-foreground",
                   }
-                : status === "failed"
+                : status === "limited"
                   ? {
-                      label: gt("Failed", { $context: "thread status" }),
+                      label: gt("Limited", { $context: "thread status: usage limited" }),
                       icon: "failed" as const,
-                      className: "text-error-foreground",
+                      className: "text-warning-foreground",
                     }
-                  : isWoke
+                  : status === "failed"
                     ? {
-                        label: gt("Woke", { $context: "thread status: woke from snooze" }),
-                        icon: "woke" as const,
-                        className: "text-warning-foreground",
+                        label: gt("Failed", { $context: "thread status" }),
+                        icon: "failed" as const,
+                        className: "text-error-foreground",
                       }
-                    : isUnread
+                    : isWoke
                       ? {
-                          label: gt("Done", { $context: "thread status" }),
-                          icon: "done" as const,
-                          className: "text-success-foreground",
+                          label: gt("Woke", { $context: "thread status: woke from snooze" }),
+                          icon: "woke" as const,
+                          className: "text-warning-foreground",
                         }
-                      : null;
+                      : isUnread
+                        ? {
+                            label: gt("Done", { $context: "thread status" }),
+                            icon: "done" as const,
+                            className: "text-success-foreground",
+                          }
+                        : null;
   const isWokeStatus = topStatus?.icon === "woke";
 
   const branchMismatch = resolveLocalCheckoutBranchMismatch({
@@ -1088,7 +1097,11 @@ const SidebarThreadRow = memo(function SidebarThreadRow(props: SidebarThreadRowP
                 "truncate group-focus-within/sidebar-row:text-foreground group-hover/sidebar-row:text-foreground",
                 shouldRecede
                   ? "text-secondary-label"
-                  : props.isActive || isWoke || status === "input" || status === "request"
+                  : props.isActive ||
+                      isWoke ||
+                      status === "input" ||
+                      status === "question" ||
+                      status === "request"
                     ? "text-foreground"
                     : isUnread
                       ? "text-muted-foreground"

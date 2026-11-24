@@ -93,7 +93,9 @@ describe("orchestration cache envelopes", () => {
       environmentId,
       snapshot: v2ShellSnapshot,
     });
-    expect(decodeStoredShellSnapshotSync(shell).schemaVersion).toBe(3);
+    expect(decodeStoredShellSnapshotSync(shell).schemaVersion).toBe(4);
+    // Shells saved before latestRunAsksUser would resume without it.
+    expect(() => decodeStoredShellSnapshotSync({ ...shell, schemaVersion: 3 })).toThrow();
   });
 
   it.effect("discards V1-versioned cache envelopes after a decode failure", () =>

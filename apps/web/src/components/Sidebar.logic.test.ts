@@ -44,6 +44,7 @@ import {
   groupSidebarThreadsByProject,
   resolveSidebarFolderDot,
   sidebarFolderExpansionKeys,
+  resolveSidebarFolderBand,
   sortFolderThreadsByStatus,
   splitNeedsYouThreads,
   withoutRemovedCheckout,
@@ -557,7 +558,7 @@ describe("splitNeedsYouThreads", () => {
     hasPendingApprovals: false,
     hasPendingUserInput: false,
     interactionMode: "default" as const,
-    runtime: runtime("idle"),
+    runtime: null,
     latestRun: null,
     lastVisitedAt: undefined,
     ...overrides,
@@ -599,6 +600,29 @@ describe("splitNeedsYouThreads", () => {
     );
   });
 
+  it("keeps a finished thread whose reply asks the user in needs you after a visit", () => {
+    const question = thread("question", {
+      runtime: null,
+      latestRun: makeLatestRun(),
+      latestRunAsksUser: true,
+      lastVisitedAt: "2026-03-09T10:06:00.000Z",
+    });
+    const idle = thread("idle");
+
+    expect(resolveSidebarRowStatus(question)).toBe("question");
+    // Notifications and the window title read the thread status, which stays finished.
+    expect(resolveSidebarThreadStatus(question)).toBe("ready");
+    expect(splitNeedsYouThreads([idle, question], {})).toEqual({
+      needsYou: [question],
+      rest: [idle],
+    });
+    expect(sortFolderThreadsByStatus([idle, question], {})).toEqual([question, idle]);
+    expect(resolveSidebarFolderDot([idle, question])).toBe("attention");
+    // A newer run without the marker replaces the flag, and a running turn is not a question.
+    expect(resolveSidebarRowStatus({ ...question, latestRunAsksUser: false })).toBe("ready");
+    expect(resolveSidebarRowStatus({ ...question, runtime: runtime("running") })).toBe("working");
+  });
+
   it("orders folder threads: needs you, then working, then Done, then idle", () => {
     const idle = thread("idle");
     const working = thread("working", { runtime: runtime("running") });
@@ -632,6 +656,17 @@ describe("splitNeedsYouThreads", () => {
     expect(
       sortFolderThreadsByStatus([idle, local], { [localKey]: "2026-03-09T10:06:00.000Z" }),
     ).toEqual([idle, local]);
+  });
+
+  it("files a thread waiting on subagents or child threads with working", () => {
+    const idle = thread("idle");
+    // The shell parks a finished turn at idle while a subagent or delegated child still runs.
+    const parked = thread("parked", { runtime: runtime("idle"), latestRun: makeLatestRun() });
+    const blocked = thread("blocked", { runtime: runtime("running"), blockedOnThreadWait: true });
+
+    expect(resolveSidebarFolderBand(parked)).toBe("working");
+    expect(resolveSidebarFolderBand(blocked)).toBe("working");
+    expect(sortFolderThreadsByStatus([idle, parked], {})).toEqual([parked, idle]);
   });
 });
 
