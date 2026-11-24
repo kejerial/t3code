@@ -599,6 +599,29 @@ describe("splitNeedsYouThreads", () => {
     );
   });
 
+  it("keeps a finished thread whose reply asks the user in needs you after a visit", () => {
+    const question = thread("question", {
+      runtime: null,
+      latestRun: makeLatestRun(),
+      latestRunAsksUser: true,
+      lastVisitedAt: "2026-03-09T10:06:00.000Z",
+    });
+    const idle = thread("idle");
+
+    expect(resolveSidebarRowStatus(question)).toBe("question");
+    // Notifications and the window title read the thread status, which stays finished.
+    expect(resolveSidebarThreadStatus(question)).toBe("ready");
+    expect(splitNeedsYouThreads([idle, question], {})).toEqual({
+      needsYou: [question],
+      rest: [idle],
+    });
+    expect(sortFolderThreadsByStatus([idle, question], {})).toEqual([question, idle]);
+    expect(resolveSidebarFolderDot([idle, question])).toBe("attention");
+    // A newer run without the marker replaces the flag, and a running turn is not a question.
+    expect(resolveSidebarRowStatus({ ...question, latestRunAsksUser: false })).toBe("ready");
+    expect(resolveSidebarRowStatus({ ...question, runtime: runtime("running") })).toBe("working");
+  });
+
   it("orders folder threads: needs you, then working, then Done, then idle", () => {
     const idle = thread("idle");
     const working = thread("working", { runtime: runtime("running") });

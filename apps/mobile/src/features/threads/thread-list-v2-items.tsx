@@ -117,6 +117,14 @@ const STATUS_LABEL_BY_STATUS: Partial<Record<ThreadListV2Status, StatusLabel>> =
     className: "text-adaptive-indigo-600-300",
     iconTintClassName: "accent-adaptive-indigo-600-300",
   },
+  question: {
+    label: msg("Question", {
+      $context: "thread status, the agent's last reply asks the user to answer",
+    }),
+    icon: "questionmark.bubble",
+    className: "text-adaptive-indigo-600-300",
+    iconTintClassName: "accent-adaptive-indigo-600-300",
+  },
   request: {
     label: msg("Request", { $context: "thread status, a guest request is waiting" }),
     icon: "person.crop.circle",

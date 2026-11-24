@@ -71,6 +71,7 @@ export function resolveThreadListV2ProviderDrivers(
 export type ThreadListV2Status =
   | "approval"
   | "input"
+  | "question"
   | "request"
   | "working"
   | "waiting"
@@ -342,12 +343,16 @@ export function threadListV2RowAccessibilityLabel(
     .join(", ");
 }
 
-/** Row status: a failure the user has already opened settles to ready, like Done. */
+/**
+ * Row status: a finished run whose reply asks the user stays a question until a newer run;
+ * a failure the user has already opened settles to ready, like Done.
+ */
 export function resolveThreadListV2RowStatus(
   thread: Parameters<typeof resolveThreadListV2Status>[0] &
-    Pick<EnvironmentThreadShell, "latestRun" | "lastVisitedAt">,
+    Pick<EnvironmentThreadShell, "latestRun" | "lastVisitedAt" | "latestRunAsksUser">,
 ): ThreadListV2Status {
   const status = resolveThreadListV2Status(thread);
+  if (status === "ready" && thread.latestRunAsksUser === true) return "question";
   // A runtime failure without a failed run has nothing to date it, so it stays.
   if (status !== "failed" || thread.latestRun?.status !== "failed") return status;
   return hasUnseenRunFailure(thread) ? status : "ready";

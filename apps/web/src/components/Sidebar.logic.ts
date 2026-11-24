@@ -1120,6 +1120,7 @@ export function resolveAdjacentThreadId<T>(input: {
 export type SidebarThreadStatus =
   | "approval"
   | "input"
+  | "question"
   | "request"
   | "preparing"
   | "working"
@@ -1160,6 +1161,7 @@ type SidebarThreadStatusInput = Pick<
   | "pendingGuestMessageCount"
   | "runtime"
   | "blockedOnThreadWait"
+  | "latestRunAsksUser"
 >;
 
 export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): SidebarThreadStatus {
@@ -1194,11 +1196,15 @@ export function resolveSidebarThreadStatus(thread: SidebarThreadStatusInput): Si
   return "ready";
 }
 
-/** Sidebar row status: a failure the user has already opened settles to ready, like Done. */
+/**
+ * Sidebar row status: a finished run whose reply asks the user stays a question until a newer
+ * run; a failure the user has already opened settles to ready, like Done.
+ */
 export function resolveSidebarRowStatus(
   thread: ThreadStatusInput & SidebarThreadStatusInput,
 ): SidebarThreadStatus {
   const status = resolveSidebarThreadStatus(thread);
+  if (status === "ready" && thread.latestRunAsksUser === true) return "question";
   // A runtime failure without a failed run has nothing to date it, so it stays.
   if (status !== "failed" || thread.latestRun?.status !== "failed") return status;
   return hasUnseenRunFailure(thread) ? status : "ready";
@@ -1231,6 +1237,7 @@ function sidebarStatusNeedsUser(status: SidebarThreadStatus): boolean {
   return (
     status === "approval" ||
     status === "input" ||
+    status === "question" ||
     status === "request" ||
     status === "limited" ||
     status === "failed"
@@ -1310,6 +1317,7 @@ export function resolveSidebarFolderDot(
   const statuses = new Set(threads.map(resolveSidebarRowStatus));
   if (
     statuses.has("input") ||
+    statuses.has("question") ||
     statuses.has("approval") ||
     statuses.has("request") ||
     statuses.has("limited")

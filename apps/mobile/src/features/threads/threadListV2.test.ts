@@ -192,6 +192,21 @@ describe("resolveThreadListV2Status", () => {
     expect(resolveThreadListV2RowStatus({ ...failed, lastVisitedAt: null })).toBe("failed");
   });
 
+  it("shows a finished run whose reply asks the user as Question, even after a visit", () => {
+    const raw = makeRawThreadShell({
+      status: "completed",
+      latestRunId: RunId.make("run-question"),
+      latestRunCompletedAt: DateTime.makeUnsafe("2026-06-01T23:59:00.000Z"),
+      lastVisitedAt: DateTime.makeUnsafe(NOW),
+    });
+    const asking = presentThreadShell(environmentId, { ...raw, latestRunAsksUser: true });
+
+    expect(resolveThreadListV2Status(asking)).toBe("ready");
+    expect(resolveThreadListV2RowStatus(asking)).toBe("question");
+    // Older servers omit the flag.
+    expect(resolveThreadListV2RowStatus(presentThreadShell(environmentId, raw))).toBe("ready");
+  });
+
   it("shows a waiting guest message as Request, after the agent's own requests", () => {
     const thread = presentThreadShell(
       environmentId,
